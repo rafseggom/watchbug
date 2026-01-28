@@ -5,6 +5,7 @@ Este módulo proporciona handlers para frameworks web (Flask, Django, FastAPI)
 que procesan los reportes enviados desde el widget frontend.
 """
 
+import os
 import json
 import logging
 from typing import Dict, Any, Optional
@@ -133,13 +134,15 @@ class ReportHandler:
         screenshot_url = None
         screenshot_size = None
         
+        # --- CAMBIO: Nombre del bucket desde variable de entorno ---
+        bucket_name = os.getenv("SUPABASE_BUCKET_NAME", "watchbug-screenshots")
+        
         if report.screenshot:
             try:
                 # Generar nombre único
                 timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
                 url_hash = hashlib.md5(report.url.encode()).hexdigest()[:8]
                 filename = f"{timestamp}_{url_hash}.png"
-                bucket_name = "watchbug-screenshots"
                 
                 # API Endpoint de Storage (POST /storage/v1/object/{bucket}/{filename})
                 storage_url = f"{url}/storage/v1/object/{bucket_name}/{filename}"
@@ -155,6 +158,12 @@ class ReportHandler:
                         headers=storage_headers,
                         timeout=30.0
                     )
+                    
+                    # --- CAMBIO: Debugging detallado del error de Supabase ---
+                    if resp.status_code != 200:
+                        logger.error(f"❌ Error Supabase Storage ({resp.status_code}): {resp.text}")
+                        print(f"❌ [DEBUG] Supabase dice: {resp.text}")
+                    
                     resp.raise_for_status()
                 
                 # Construir URL pública
@@ -198,6 +207,10 @@ class ReportHandler:
                 headers=db_headers,
                 timeout=30.0
             )
+            
+            if resp.status_code >= 400:
+                logger.error(f"❌ Error Supabase DB ({resp.status_code}): {resp.text}")
+                
             resp.raise_for_status()
             result = resp.json()
             
