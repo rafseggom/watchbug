@@ -7,6 +7,7 @@ opcionalmente las almacena en Supabase.
 """
 
 import os
+import json
 import logging
 from typing import Dict, Optional
 from dotenv import load_dotenv
@@ -257,12 +258,15 @@ class Watchbug:
         
         return status
     
-    def get_script_tag(self) -> str:
+    def get_script_tag(self, api_endpoint: str = "/watchbug/report") -> str:
         """
         Genera el tag <script> que se inyectará en el HTML del frontend.
         
         Este script incluirá el widget de reporte de bugs y los conectores
         necesarios para los servicios habilitados.
+        
+        Args:
+            api_endpoint: Ruta del endpoint que recibirá los reportes
         
         Returns:
             String con el código HTML/JS a inyectar, o string vacío si está desactivado
@@ -270,13 +274,48 @@ class Watchbug:
         if not self.is_enabled():
             return ""
         
-        # TODO: Implementar en Milestone 2
-        # Aquí irá el código JS que inyectaremos en el frontend
-        # Incluirá:
-        # - El botón flotante de reporte
-        # - Interceptores de console.error
-        # - Integración con Sentry SDK (si está habilitado)
-        # - Integración con LogRocket SDK (si está habilitado)
-        # - Cliente para subir a Supabase (si está habilitado)
+        # Leer el contenido del widget JavaScript
+        widget_path = os.path.join(
+            os.path.dirname(__file__),
+            'static',
+            'watchbug-widget.js'
+        )
         
-        return ""
+        try:
+            with open(widget_path, 'r', encoding='utf-8') as f:
+                widget_js = f.read()
+        except FileNotFoundError:
+            logger.error(f"Widget JavaScript no encontrado en {widget_path}")
+            return ""
+        
+        # Configuración que se inyectará en el frontend
+        config = {
+            'enabled': True,
+            'services': {
+                'sentry': self.services['sentry']['enabled'],
+                'logrocket': self.services['logrocket']['enabled'],
+                'supabase': self.services['supabase']['enabled']
+            },
+            'apiEndpoint': api_endpoint
+        }
+        
+        # Generar el script tag completo
+        script_tag = f"""
+<!-- Watchbug Widget - Sistema de reporte de bugs -->
+<script>
+    // Configuración de Watchbug
+    window.__WATCHBUG_CONFIG__ = {json.dumps(config)};
+</script>
+
+<!-- html2canvas para captura de pantalla -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" 
+        integrity="sha512-D/fON2XxZ0f5TrA/qNg4/mfnHDnCPPBST0jUnr1x+bBBCNIaACWODR+g5iIQ/KRJ7+R8fR/Y+VwzhC0Lgh+4A==" 
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+<!-- Watchbug Widget Core -->
+<script>
+{widget_js}
+</script>
+"""
+        
+        return script_tag.strip()

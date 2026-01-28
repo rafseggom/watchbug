@@ -99,6 +99,8 @@ Ejemplo de salida:
 
 ### 4. Uso Programático
 
+#### Uso Básico
+
 ```python
 from watchbug import Watchbug
 
@@ -117,16 +119,83 @@ for service, result in results.items():
         print(f"✓ {service} configurado correctamente")
     else:
         print(f"✗ {service}: {result.message}")
-
-# Obtener estado de configuración
-config_status = watchbug.get_config_status()
-print("Sistema activo:", config_status['master_enabled'])
-
-# Para frameworks web (Django, Flask, FastAPI)
-# TODO: Implementado en Milestone 2
-script_tag = watchbug.get_script_tag()
-# Inyectar script_tag en tu HTML
 ```
+
+#### Integración con Flask
+
+```python
+from flask import Flask
+from watchbug import Watchbug
+from watchbug.api import create_flask_endpoint
+
+app = Flask(__name__)
+watchbug = Watchbug()
+
+# Registrar endpoint de reportes
+app.add_url_rule(
+    '/watchbug/report',
+    'watchbug_report',
+    create_flask_endpoint(watchbug),
+    methods=['POST']
+)
+
+@app.route('/')
+def index():
+    # Inyectar widget en tu HTML
+    script_tag = watchbug.get_script_tag(api_endpoint='/watchbug/report')
+    return render_template('index.html', watchbug_script=script_tag)
+```
+
+#### Integración con Django
+
+```python
+# En urls.py
+from django.urls import path
+from watchbug import Watchbug
+from watchbug.api import create_django_view
+
+watchbug = Watchbug()
+
+urlpatterns = [
+    path('watchbug/report/', create_django_view(watchbug)),
+]
+
+# En tu vista
+def my_view(request):
+    script_tag = watchbug.get_script_tag(api_endpoint='/watchbug/report/')
+    return render(request, 'index.html', {'watchbug_script': script_tag})
+```
+
+#### Integración con FastAPI
+
+```python
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
+from watchbug import Watchbug
+from watchbug.api import create_fastapi_endpoint
+
+app = FastAPI()
+watchbug = Watchbug()
+
+# Registrar endpoint
+app.post('/watchbug/report')(create_fastapi_endpoint(watchbug))
+
+@app.get('/', response_class=HTMLResponse)
+async def index():
+    script_tag = watchbug.get_script_tag(api_endpoint='/watchbug/report')
+    return f"<html><body>{script_tag}</body></html>"
+```
+
+### 5. Probar la Demo
+
+```bash
+# Ejecutar aplicación de ejemplo
+python examples/flask_app.py
+
+# Abre http://localhost:5000 en tu navegador
+```
+
+La demo incluye botones para generar errores de prueba y ver cómo Watchbug los captura automáticamente.
 
 ## 🏗️ Estado del Proyecto
 
@@ -140,16 +209,23 @@ script_tag = watchbug.get_script_tag()
 - [x] Degradación silenciosa si la configuración es inválida
 - [x] Soporte para servicios independientes (cualquier combinación funciona)
 
+### ✅ Milestone 2: Widget Frontend (COMPLETADO)
+
+- [x] Botón flotante de reporte de bugs con UI completa
+- [x] Captura de pantalla del DOM con html2canvas
+- [x] Interceptores de errores:
+  - [x] `window.onerror` (errores globales de JavaScript)
+  - [x] `unhandledrejection` (promesas rechazadas)
+  - [x] `console.error` (errores de consola)
+  - [x] `fetch` (peticiones HTTP fallidas)
+  - [x] `XMLHttpRequest` (peticiones XHR fallidas)
+- [x] Extracción de IDs externos (Sentry eventId, LogRocket sessionURL)
+- [x] Sistema de inyección de widget con `get_script_tag()`
+- [x] API endpoints para Flask, Django y FastAPI
+- [x] Formulario de reporte con comentario del usuario
+- [x] Aplicación de demostración con Flask
+
 ### 🚧 Próximos Milestones
-
-**Milestone 2: Widget Frontend**
-- [ ] Botón flotante de reporte
-- [ ] Captura de pantalla con html2canvas
-- [ ] Interceptores de errores (console.error, peticiones fallidas)
-- [ ] Extracción de IDs de Sentry y LogRocket
-- [ ] Interfaz de reporte con comentario del usuario
-
-**Milestone 3: Integración con Supabase**
 - [ ] Cliente de Supabase en Python
 - [ ] Subida de capturas al Storage
 - [ ] Almacenamiento de metadatos en tablas
@@ -190,14 +266,49 @@ Prueba **conectividad real** con los servicios:
 
 ```
 watchbug/
-├── __init__.py       # API pública (Watchbug, ServiceStatus, ValidationResult)
-├── core.py           # Clase principal Watchbug con lógica de configuración
-├── checks.py         # Validadores y health checks por servicio
-├── cli.py            # Interfaz de línea de comandos
-└── static/           # (Milestone 2) Assets del widget frontend
+├── __init__.py           # API pública
+├── core.py               # Clase principal Watchbug
+├── checks.py             # Validadores y health checks
+├── cli.py                # Interfaz de línea de comandos
+├── api.py                # Endpoints para frameworks web
+└── static/
+    └── watchbug-widget.js  # Widget JavaScript del frontend
+
+examples/
+└── flask_app.py          # Aplicación de demostración
 ```
 
-### Clases Principales
+### Componentes Principales
+
+**Frontend (JavaScript)**
+- **Widget UI**: Botón flotante + diálogo de reporte
+- **Interceptores**: Captura automática de errores (JS, consola, red)
+- **Screenshot**: Captura visual del DOM con html2canvas
+- **Integración**: Extrae IDs de Sentry y LogRocket
+
+**Backend (Python)**
+- **`Watchbug`**: Orquestador principal y gestor de configuración
+- **`ReportHandler`**: Procesa reportes del frontend
+- **`BugReport`**: Estructura de datos del reporte
+- **Framework adapters**: Flask, Django, FastAPI
+
+### Flujo de Datos
+
+```
+Usuario → Genera Error → Interceptor → Estado del Widget
+                ↓
+         Click en Botón 🐛
+                ↓
+   Captura Screenshot + Recopila Contexto
+                ↓
+         Envía FormData al Backend
+                ↓
+    ReportHandler procesa y almacena
+                ↓
+  [Sentry] + [LogRocket] + [Supabase*]
+  
+  * Supabase = Milestone 3
+```
 
 **`Watchbug`**: Clase principal que orquesta todo el sistema
 - Carga configuración desde `.env`
@@ -257,5 +368,20 @@ MIT License - Ver [LICENSE](LICENSE) para más detalles.
 
 ---
 
-**Estado**: 🚀 Milestone 1 completado - Sistema de configuración operativo  
-**Próximo paso**: Milestone 2 - Widget Frontend
+**Estado**: 🚀 Milestone 2 completado - Widget Frontend operativo  
+**Próximo paso**: Milestone 3 - Integración con Supabase
+
+### ✨ Nuevo en Milestone 2
+
+- 🎨 **Widget JavaScript completo** con botón flotante y diálogo de reporte
+- 📸 **Captura de pantalla automática** del DOM usando html2canvas
+- 🔍 **Interceptores de errores** para JavaScript, consola, fetch y XHR
+- 🔗 **Extracción de IDs** de Sentry y LogRocket para vincular servicios
+- 🌐 **API endpoints** listos para Flask, Django y FastAPI
+- 🎭 **Demo interactiva** en `examples/flask_app.py`
+
+**Prueba ahora:**
+```bash
+python examples/flask_app.py
+# Abre http://localhost:5000
+```

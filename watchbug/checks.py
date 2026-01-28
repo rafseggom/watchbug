@@ -39,7 +39,7 @@ class ValidationResult:
 
 # Patrones de validación de formato
 SENTRY_DSN_PATTERN = re.compile(
-    r'^https://[a-f0-9]+@o?\d+\.ingest\.sentry\.io/\d+$',
+    r'^https://[a-f0-9]+@o?\d+\.ingest(\.[a-z]{2})?\.sentry\.io/\d+$',
     re.IGNORECASE
 )
 

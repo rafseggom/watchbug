@@ -1,0 +1,564 @@
+/**
+ * Watchbug Widget - Sistema de reporte de bugs unificado
+ * 
+ * Este widget captura errores, screenshots y contexto del usuario
+ * y los envía al sistema Watchbug para análisis.
+ */
+
+(function() {
+    'use strict';
+    
+    // Configuración inyectada desde Python (será reemplazada dinámicamente)
+    const WATCHBUG_CONFIG = window.__WATCHBUG_CONFIG__ || {
+        enabled: false,
+        services: {
+            sentry: false,
+            logrocket: false,
+            supabase: false
+        },
+        apiEndpoint: '/watchbug/report'
+    };
+    
+    if (!WATCHBUG_CONFIG.enabled) {
+        console.log('[Watchbug] Widget desactivado');
+        return;
+    }
+    
+    // ============================================
+    // Estado Global del Widget
+    // ============================================
+    const WatchbugState = {
+        errors: [],
+        networkErrors: [],
+        consoleErrors: [],
+        sentryEventId: null,
+        logrocketSessionURL: null,
+        isReportDialogOpen: false
+    };
+    
+    // ============================================
+    // Interceptores de Errores
+    // ============================================
+    
+    /**
+     * Intercepta errores globales de JavaScript
+     */
+    const originalOnError = window.onerror;
+    window.onerror = function(message, source, lineno, colno, error) {
+        WatchbugState.errors.push({
+            type: 'javascript',
+            message: message,
+            source: source,
+            line: lineno,
+            column: colno,
+            stack: error ? error.stack : null,
+            timestamp: new Date().toISOString()
+        });
+        
+        // Llamar al handler original si existe
+        if (originalOnError) {
+            return originalOnError.apply(this, arguments);
+        }
+        return false;
+    };
+    
+    /**
+     * Intercepta promesas rechazadas no manejadas
+     */
+    window.addEventListener('unhandledrejection', function(event) {
+        WatchbugState.errors.push({
+            type: 'unhandled_promise',
+            message: event.reason ? event.reason.toString() : 'Unhandled Promise Rejection',
+            stack: event.reason ? event.reason.stack : null,
+            timestamp: new Date().toISOString()
+        });
+    });
+    
+    /**
+     * Intercepta console.error
+     */
+    const originalConsoleError = console.error;
+    console.error = function() {
+        const args = Array.from(arguments);
+        WatchbugState.consoleErrors.push({
+            message: args.join(' '),
+            timestamp: new Date().toISOString()
+        });
+        
+        // Llamar al console.error original
+        originalConsoleError.apply(console, arguments);
+    };
+    
+    /**
+     * Intercepta peticiones fetch fallidas
+     */
+    const originalFetch = window.fetch;
+    window.fetch = function() {
+        return originalFetch.apply(this, arguments).then(response => {
+            if (!response.ok) {
+                WatchbugState.networkErrors.push({
+                    type: 'fetch',
+                    url: arguments[0],
+                    status: response.status,
+                    statusText: response.statusText,
+                    timestamp: new Date().toISOString()
+                });
+            }
+            return response;
+        }).catch(error => {
+            WatchbugState.networkErrors.push({
+                type: 'fetch',
+                url: arguments[0],
+                error: error.message,
+                timestamp: new Date().toISOString()
+            });
+            throw error;
+        });
+    };
+    
+    /**
+     * Intercepta peticiones XMLHttpRequest fallidas
+     */
+    const originalXHROpen = XMLHttpRequest.prototype.open;
+    const originalXHRSend = XMLHttpRequest.prototype.send;
+    
+    XMLHttpRequest.prototype.open = function(method, url) {
+        this._watchbug_url = url;
+        this._watchbug_method = method;
+        return originalXHROpen.apply(this, arguments);
+    };
+    
+    XMLHttpRequest.prototype.send = function() {
+        this.addEventListener('error', function() {
+            WatchbugState.networkErrors.push({
+                type: 'xhr',
+                method: this._watchbug_method,
+                url: this._watchbug_url,
+                error: 'Network error',
+                timestamp: new Date().toISOString()
+            });
+        });
+        
+        this.addEventListener('load', function() {
+            if (this.status >= 400) {
+                WatchbugState.networkErrors.push({
+                    type: 'xhr',
+                    method: this._watchbug_method,
+                    url: this._watchbug_url,
+                    status: this.status,
+                    statusText: this.statusText,
+                    timestamp: new Date().toISOString()
+                });
+            }
+        });
+        
+        return originalXHRSend.apply(this, arguments);
+    };
+    
+    // ============================================
+    // Extracción de IDs de Servicios Externos
+    // ============================================
+    
+    /**
+     * Extrae el último eventId de Sentry si está disponible
+     */
+    function getSentryEventId() {
+        if (window.Sentry && typeof window.Sentry.lastEventId === 'function') {
+            return window.Sentry.lastEventId();
+        }
+        return WatchbugState.sentryEventId;
+    }
+    
+    /**
+     * Extrae la sessionURL de LogRocket si está disponible
+     */
+    function getLogrocketSessionURL() {
+        if (window.LogRocket && typeof window.LogRocket.sessionURL === 'string') {
+            return window.LogRocket.sessionURL;
+        }
+        return WatchbugState.logrocketSessionURL;
+    }
+    
+    // ============================================
+    // Sistema de Captura de Pantalla
+    // ============================================
+    
+    /**
+     * Captura el estado actual del DOM como imagen
+     * Requiere html2canvas (se carga dinámicamente si no está disponible)
+     */
+    async function captureScreenshot() {
+        // Verificar si html2canvas está disponible
+        if (!window.html2canvas) {
+            console.warn('[Watchbug] html2canvas no disponible, captura de pantalla omitida');
+            return null;
+        }
+        
+        try {
+            const canvas = await window.html2canvas(document.body, {
+                logging: false,
+                useCORS: true,
+                allowTaint: true
+            });
+            
+            // Convertir canvas a blob
+            return new Promise((resolve) => {
+                canvas.toBlob((blob) => {
+                    resolve(blob);
+                }, 'image/png');
+            });
+        } catch (error) {
+            console.error('[Watchbug] Error capturando screenshot:', error);
+            return null;
+        }
+    }
+    
+    /**
+     * Carga html2canvas dinámicamente si no está disponible
+     */
+    function loadHtml2Canvas() {
+        return new Promise((resolve, reject) => {
+            if (window.html2canvas) {
+                resolve();
+                return;
+            }
+            
+            const script = document.createElement('script');
+            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+        });
+    }
+    
+    // ============================================
+    // UI del Widget - Botón Flotante
+    // ============================================
+    
+    /**
+     * Crea el botón flotante de reporte de bugs
+     */
+    function createFloatingButton() {
+        const button = document.createElement('button');
+        button.id = 'watchbug-floating-btn';
+        button.innerHTML = '🐛';
+        button.title = 'Reportar un problema';
+        
+        // Estilos inline para el botón
+        Object.assign(button.style, {
+            position: 'fixed',
+            bottom: '20px',
+            right: '20px',
+            width: '60px',
+            height: '60px',
+            borderRadius: '50%',
+            backgroundColor: '#FF6B6B',
+            color: 'white',
+            border: 'none',
+            fontSize: '28px',
+            cursor: 'pointer',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+            zIndex: '999999',
+            transition: 'all 0.3s ease',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+        });
+        
+        // Efectos hover
+        button.addEventListener('mouseenter', () => {
+            button.style.transform = 'scale(1.1)';
+            button.style.boxShadow = '0 6px 16px rgba(0,0,0,0.4)';
+        });
+        
+        button.addEventListener('mouseleave', () => {
+            button.style.transform = 'scale(1)';
+            button.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
+        });
+        
+        // Click handler
+        button.addEventListener('click', openReportDialog);
+        
+        return button;
+    }
+    
+    /**
+     * Crea el diálogo de reporte de bugs
+     */
+    function createReportDialog() {
+        const overlay = document.createElement('div');
+        overlay.id = 'watchbug-overlay';
+        
+        Object.assign(overlay.style, {
+            position: 'fixed',
+            top: '0',
+            left: '0',
+            width: '100%',
+            height: '100%',
+            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+            zIndex: '1000000',
+            display: 'none',
+            alignItems: 'center',
+            justifyContent: 'center'
+        });
+        
+        const dialog = document.createElement('div');
+        dialog.id = 'watchbug-dialog';
+        
+        Object.assign(dialog.style, {
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            padding: '30px',
+            maxWidth: '500px',
+            width: '90%',
+            boxShadow: '0 10px 40px rgba(0,0,0,0.3)',
+            position: 'relative'
+        });
+        
+        dialog.innerHTML = `
+            <button id="watchbug-close" style="
+                position: absolute;
+                top: 10px;
+                right: 10px;
+                background: none;
+                border: none;
+                font-size: 24px;
+                cursor: pointer;
+                color: #999;
+            ">×</button>
+            
+            <h2 style="margin: 0 0 20px 0; color: #333;">🐛 Reportar Problema</h2>
+            
+            <p style="color: #666; margin-bottom: 20px;">
+                Describe qué estabas intentando hacer cuando encontraste el problema:
+            </p>
+            
+            <textarea id="watchbug-comment" placeholder="Ejemplo: Intenté guardar el formulario pero me dio error..." 
+                style="
+                    width: 100%;
+                    height: 120px;
+                    padding: 12px;
+                    border: 1px solid #ddd;
+                    border-radius: 6px;
+                    font-family: inherit;
+                    font-size: 14px;
+                    resize: vertical;
+                    box-sizing: border-box;
+                "></textarea>
+            
+            <div style="margin: 20px 0; padding: 15px; background: #f5f5f5; border-radius: 6px; font-size: 13px;">
+                <p style="margin: 0 0 8px 0; color: #666;">
+                    <strong>Información que se capturará:</strong>
+                </p>
+                <ul style="margin: 0; padding-left: 20px; color: #888;">
+                    <li>URL actual y hora</li>
+                    <li>Captura de pantalla de la página</li>
+                    <li>Errores de consola (${WatchbugState.consoleErrors.length})</li>
+                    <li>Errores de red (${WatchbugState.networkErrors.length})</li>
+                    ${WATCHBUG_CONFIG.services.sentry ? '<li>Event ID de Sentry</li>' : ''}
+                    ${WATCHBUG_CONFIG.services.logrocket ? '<li>Sesión de LogRocket</li>' : ''}
+                </ul>
+            </div>
+            
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button id="watchbug-cancel" style="
+                    padding: 10px 20px;
+                    border: 1px solid #ddd;
+                    background: white;
+                    border-radius: 6px;
+                    cursor: pointer;
+                    font-size: 14px;
+                ">Cancelar</button>
+                
+                <button id="watchbug-submit" style="
+                    padding: 10px 20px;
+                    border: none;
+                    background: #FF6B6B;
+                    color: white;
+                    border-radius: 6px;
+                    cursor: pointer;
+                    font-size: 14px;
+                    font-weight: 600;
+                ">Enviar Reporte</button>
+            </div>
+            
+            <div id="watchbug-status" style="
+                margin-top: 15px;
+                padding: 10px;
+                border-radius: 6px;
+                display: none;
+                font-size: 14px;
+            "></div>
+        `;
+        
+        overlay.appendChild(dialog);
+        
+        // Event listeners
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                closeReportDialog();
+            }
+        });
+        
+        dialog.querySelector('#watchbug-close').addEventListener('click', closeReportDialog);
+        dialog.querySelector('#watchbug-cancel').addEventListener('click', closeReportDialog);
+        dialog.querySelector('#watchbug-submit').addEventListener('click', submitReport);
+        
+        return overlay;
+    }
+    
+    /**
+     * Abre el diálogo de reporte
+     */
+    function openReportDialog() {
+        if (WatchbugState.isReportDialogOpen) return;
+        
+        WatchbugState.isReportDialogOpen = true;
+        const overlay = document.getElementById('watchbug-overlay');
+        overlay.style.display = 'flex';
+        
+        // Focus en el textarea
+        setTimeout(() => {
+            document.getElementById('watchbug-comment').focus();
+        }, 100);
+    }
+    
+    /**
+     * Cierra el diálogo de reporte
+     */
+    function closeReportDialog() {
+        WatchbugState.isReportDialogOpen = false;
+        const overlay = document.getElementById('watchbug-overlay');
+        overlay.style.display = 'none';
+        
+        // Limpiar el formulario
+        document.getElementById('watchbug-comment').value = '';
+        document.getElementById('watchbug-status').style.display = 'none';
+    }
+    
+    /**
+     * Muestra un mensaje de estado en el diálogo
+     */
+    function showStatus(message, type = 'info') {
+        const statusDiv = document.getElementById('watchbug-status');
+        statusDiv.textContent = message;
+        statusDiv.style.display = 'block';
+        
+        const colors = {
+            info: { bg: '#E3F2FD', text: '#1976D2' },
+            success: { bg: '#E8F5E9', text: '#388E3C' },
+            error: { bg: '#FFEBEE', text: '#D32F2F' }
+        };
+        
+        const color = colors[type] || colors.info;
+        statusDiv.style.backgroundColor = color.bg;
+        statusDiv.style.color = color.text;
+    }
+    
+    /**
+     * Envía el reporte al backend
+     */
+    async function submitReport() {
+        const comment = document.getElementById('watchbug-comment').value.trim();
+        
+        if (!comment) {
+            showStatus('Por favor, describe el problema que encontraste', 'error');
+            return;
+        }
+        
+        showStatus('Capturando información... 📸', 'info');
+        
+        // Deshabilitar botón de envío
+        const submitBtn = document.getElementById('watchbug-submit');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Enviando...';
+        
+        try {
+            // Cargar html2canvas si es necesario
+            await loadHtml2Canvas();
+            
+            // Capturar screenshot
+            showStatus('Capturando pantalla...', 'info');
+            const screenshot = await captureScreenshot();
+            
+            // Recopilar toda la información
+            const reportData = {
+                comment: comment,
+                url: window.location.href,
+                timestamp: new Date().toISOString(),
+                userAgent: navigator.userAgent,
+                viewport: {
+                    width: window.innerWidth,
+                    height: window.innerHeight
+                },
+                errors: WatchbugState.errors,
+                consoleErrors: WatchbugState.consoleErrors,
+                networkErrors: WatchbugState.networkErrors,
+                sentryEventId: getSentryEventId(),
+                logrocketSessionURL: getLogrocketSessionURL()
+            };
+            
+            // Crear FormData para enviar archivo + JSON
+            const formData = new FormData();
+            formData.append('data', JSON.stringify(reportData));
+            
+            if (screenshot) {
+                formData.append('screenshot', screenshot, 'screenshot.png');
+            }
+            
+            // Enviar al backend
+            showStatus('Enviando reporte...', 'info');
+            const response = await fetch(WATCHBUG_CONFIG.apiEndpoint, {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (response.ok) {
+                showStatus('✅ Reporte enviado correctamente. ¡Gracias!', 'success');
+                
+                // Cerrar después de 2 segundos
+                setTimeout(() => {
+                    closeReportDialog();
+                }, 2000);
+            } else {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+        } catch (error) {
+            console.error('[Watchbug] Error enviando reporte:', error);
+            showStatus('❌ Error enviando el reporte. Intenta de nuevo.', 'error');
+            
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Enviar Reporte';
+        }
+    }
+    
+    // ============================================
+    // Inicialización del Widget
+    // ============================================
+    
+    function init() {
+        console.log('[Watchbug] Inicializando widget...');
+        
+        // Esperar a que el DOM esté listo
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+            return;
+        }
+        
+        // Crear UI
+        document.body.appendChild(createFloatingButton());
+        document.body.appendChild(createReportDialog());
+        
+        console.log('[Watchbug] Widget listo ✓');
+        console.log('[Watchbug] Servicios activos:', {
+            sentry: WATCHBUG_CONFIG.services.sentry,
+            logrocket: WATCHBUG_CONFIG.services.logrocket,
+            supabase: WATCHBUG_CONFIG.services.supabase
+        });
+    }
+    
+    // Iniciar
+    init();
+    
+})();
