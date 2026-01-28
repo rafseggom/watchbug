@@ -17,13 +17,6 @@ class BugReport:
     """Representa un reporte de bug enviado desde el frontend."""
     
     def __init__(self, data: Dict[str, Any], screenshot: Optional[bytes] = None):
-        """
-        Inicializa un BugReport desde los datos del frontend.
-        
-        Args:
-            data: Diccionario con la información del reporte
-            screenshot: Bytes del screenshot (PNG), opcional
-        """
         self.comment = data.get('comment', '')
         self.url = data.get('url', '')
         self.timestamp = data.get('timestamp', datetime.utcnow().isoformat())
@@ -37,7 +30,6 @@ class BugReport:
         self.screenshot = screenshot
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convierte el reporte a diccionario."""
         return {
             'comment': self.comment,
             'url': self.url,
@@ -53,37 +45,16 @@ class BugReport:
         }
     
     def __repr__(self):
-        return (
-            f"BugReport(url='{self.url}', "
-            f"errors={len(self.errors)}, "
-            f"comment='{self.comment[:50]}...')"
-        )
+        return f"BugReport(url='{self.url}', errors={len(self.errors)}, comment='{self.comment[:50]}...')"
 
 
 class ReportHandler:
-    """
-    Handler base para procesar reportes de bugs.
-    
-    Subclases específicas implementan el procesamiento para cada framework.
-    """
+    """Handler base para procesar reportes de bugs."""
     
     def __init__(self, watchbug_instance):
-        """
-        Args:
-            watchbug_instance: Instancia de la clase Watchbug
-        """
         self.watchbug = watchbug_instance
     
     def process_report(self, report: BugReport) -> Dict[str, Any]:
-        """
-        Procesa un reporte de bug.
-        
-        Args:
-            report: El reporte a procesar
-            
-        Returns:
-            Diccionario con el resultado del procesamiento
-        """
         print("\n" + "="*60)
         print("🐛 NUEVO REPORTE DE BUG RECIBIDO")
         print("="*60)
@@ -96,40 +67,16 @@ class ReportHandler:
         }
         
         try:
-            # Mostrar información del reporte
+            # Mostrar logs en consola (Feedback inmediato para dev)
             print(f"\n📍 URL: {report.url}")
-            print(f"⏰ Timestamp: {report.timestamp}")
             print(f"💬 Comentario: {report.comment}")
-            print(f"\n🖥️  Navegador: {report.user_agent[:80]}...")
-            print(f"📐 Viewport: {report.viewport.get('width')}x{report.viewport.get('height')}")
-            
-            # Errores capturados
-            print(f"\n❌ Errores JavaScript: {len(report.errors)}")
-            if report.errors:
-                for i, error in enumerate(report.errors[:3], 1):  # Mostrar primeros 3
-                    print(f"   {i}. {error.get('type')}: {error.get('message')[:100]}")
-            
-            print(f"📝 Errores de Consola: {len(report.console_errors)}")
-            if report.console_errors:
-                for i, error in enumerate(report.console_errors[:3], 1):
-                    print(f"   {i}. {error.get('message')[:100]}")
-            
-            print(f"🌐 Errores de Red: {len(report.network_errors)}")
-            if report.network_errors:
-                for i, error in enumerate(report.network_errors[:3], 1):
-                    print(f"   {i}. {error.get('url')} - {error.get('status', 'Network error')}")
-            
-            print(f"\n📸 Screenshot: {'✓ Capturado' if report.screenshot else '✗ No disponible'}")
-            if report.screenshot:
-                print(f"   Tamaño: {len(report.screenshot)} bytes")
-            
-            # Servicios externos
-            print(f"\n🔗 Servicios Vinculados:")
+            print(f"❌ Errores JS: {len(report.errors)} | 📝 Consola: {len(report.console_errors)} | 🌐 Red: {len(report.network_errors)}")
+            print(f"📸 Screenshot: {'✓ Capturado' if report.screenshot else '✗ No disponible'}")
             
             # Subir a Supabase si está habilitado
             if self.watchbug.services['supabase']['enabled']:
                 try:
-                    print(f"   💾 Supabase: Guardando en base de datos...")
+                    print(f"   💾 Supabase: Guardando...")
                     supabase_id = self._save_to_supabase(report)
                     result['report_id'] = supabase_id
                     result['services_used'].append('supabase')
@@ -138,28 +85,19 @@ class ReportHandler:
                     print(f"   💾 Supabase: ✗ Error: {str(e)}")
                     logger.error(f"Error guardando en Supabase: {e}", exc_info=True)
                     result['errors'].append(f"Supabase error: {str(e)}")
-            else:
-                print(f"   💾 Supabase: Desactivado")
             
-            # TODO (Milestone 4): Vincular con Sentry si hay eventId
-            if report.sentry_event_id and self.watchbug.services['sentry']['enabled']:
-                print(f"   🔥 Sentry Event ID: {report.sentry_event_id}")
+            # Informar de otros servicios
+            if report.sentry_event_id:
                 result['services_used'].append('sentry')
                 result['sentry_event_id'] = report.sentry_event_id
-            else:
-                print(f"   🔥 Sentry: No event ID")
+                print(f"   🔥 Sentry ID: {report.sentry_event_id}")
             
-            # TODO (Milestone 4): Vincular con LogRocket si hay sessionURL
-            if report.logrocket_session_url and self.watchbug.services['logrocket']['enabled']:
-                print(f"   📹 LogRocket Session: {report.logrocket_session_url}")
+            if report.logrocket_session_url:
                 result['services_used'].append('logrocket')
                 result['logrocket_session_url'] = report.logrocket_session_url
-            else:
-                print(f"   📹 LogRocket: No session URL")
-            
-            print("\n" + "="*60)
-            print("✅ Reporte procesado exitosamente")
-            print("="*60 + "\n")
+                print(f"   📹 LogRocket: {report.logrocket_session_url}")
+
+            print("\n" + "="*60 + "\n")
             
         except Exception as e:
             print(f"\n❌ ERROR procesando reporte: {e}")
@@ -171,70 +109,45 @@ class ReportHandler:
     
     def _save_to_supabase(self, report: BugReport) -> str:
         """
-        Guarda el reporte en Supabase usando postgrest directamente.
-        
-        Args:
-            report: El reporte a guardar
-            
-        Returns:
-            ID del reporte en Supabase
+        Guarda el reporte en Supabase usando el cliente oficial (SDK).
         """
         import hashlib
         from datetime import datetime
-        import httpx
-        from postgrest import SyncPostgrestClient
         
-        supabase_url = self.watchbug.services['supabase']['url']
-        supabase_key = self.watchbug.services['supabase']['key']
+        # Obtenemos el cliente inicializado en core.py
+        client = self.watchbug.supabase
+        if not client:
+            raise Exception("Cliente de Supabase no inicializado")
         
-        # Crear cliente PostgREST
-        api_url = f"{supabase_url}/rest/v1"
-        headers = {
-            "apikey": supabase_key,
-            "Authorization": f"Bearer {supabase_key}",
-            "Content-Type": "application/json",
-            "Prefer": "return=representation"
-        }
-        
-        # Subir screenshot al Storage si existe
+        # 1. Subir Screenshot al Storage
         screenshot_url = None
         screenshot_size = None
         
         if report.screenshot:
             try:
-                # Generar nombre único para el archivo
+                # Generar nombre único: YYYYMMDD_HHMMSS_HashURL.png
                 timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
                 url_hash = hashlib.md5(report.url.encode()).hexdigest()[:8]
                 filename = f"{timestamp}_{url_hash}.png"
+                bucket_name = "watchbug-screenshots"
                 
-                # Subir al Storage usando la API REST
-                storage_url = f"{supabase_url}/storage/v1/object/watchbug-screenshots/{filename}"
-                storage_headers = {
-                    "apikey": supabase_key,
-                    "Authorization": f"Bearer {supabase_key}",
-                    "Content-Type": "image/png",
-                }
+                # Subida con el SDK oficial
+                client.storage.from_(bucket_name).upload(
+                    path=filename,
+                    file=report.screenshot,
+                    file_options={"content-type": "image/png"}
+                )
                 
-                with httpx.Client() as client:
-                    storage_response = client.post(
-                        storage_url,
-                        content=report.screenshot,
-                        headers=storage_headers,
-                        timeout=30.0
-                    )
-                    storage_response.raise_for_status()
-                
-                # URL pública del screenshot
-                screenshot_url = f"{supabase_url}/storage/v1/object/public/watchbug-screenshots/{filename}"
+                # Obtener URL pública
+                screenshot_url = client.storage.from_(bucket_name).get_public_url(filename)
                 screenshot_size = len(report.screenshot)
-                
-                logger.info(f"Screenshot subido a Supabase: {filename}")
+                logger.info(f"Screenshot subido: {filename}")
                 
             except Exception as e:
-                logger.error(f"Error subiendo screenshot a Supabase: {e}", exc_info=True)
-                # Continuar sin screenshot si falla
+                logger.error(f"Error subiendo screenshot: {e}", exc_info=True)
+                # Continuamos aunque falle la foto
         
-        # Preparar datos para insertar en la tabla
+        # 2. Guardar Metadata en la Tabla
         data = {
             'comment': report.comment,
             'url': report.url,
@@ -242,7 +155,7 @@ class ReportHandler:
             'user_agent': report.user_agent,
             'viewport_width': report.viewport.get('width'),
             'viewport_height': report.viewport.get('height'),
-            'errors': report.errors,
+            'errors': report.errors,         # El SDK serializa listas/dicts a JSON automáticamente
             'console_errors': report.console_errors,
             'network_errors': report.network_errors,
             'sentry_event_id': report.sentry_event_id,
@@ -251,128 +164,50 @@ class ReportHandler:
             'screenshot_size': screenshot_size
         }
         
-        # Insertar en tabla de bug_reports usando httpx directamente
-        table_url = f"{api_url}/bug_reports"
+        # Inserción limpia
+        response = client.table("bug_reports").insert(data).execute()
         
-        with httpx.Client() as client:
-            response = client.post(
-                table_url,
-                json=data,
-                headers=headers,
-                timeout=30.0
-            )
-            response.raise_for_status()
-            result = response.json()
-        
-        if not result or len(result) == 0:
-            raise Exception("Supabase no retornó datos después del insert")
-        
-        report_id = result[0]['id']
-        logger.info(f"Reporte guardado en Supabase con ID: {report_id}")
-        
-        return report_id
+        if not response.data:
+            raise Exception("Supabase no retornó datos tras la inserción")
+            
+        return response.data[0]['id']
 
 
 # ============================================
-# Flask Integration
+# Framework Integrations (Flask, Django, FastAPI)
 # ============================================
 
 def create_flask_endpoint(watchbug_instance):
-    """
-    Crea un endpoint Flask para recibir reportes.
-    
-    Uso:
-        from flask import Flask
-        from watchbug import Watchbug
-        from watchbug.api import create_flask_endpoint
-        
-        app = Flask(__name__)
-        watchbug = Watchbug()
-        
-        app.add_url_rule(
-            '/watchbug/report',
-            'watchbug_report',
-            create_flask_endpoint(watchbug),
-            methods=['POST']
-        )
-    
-    Args:
-        watchbug_instance: Instancia de Watchbug
-        
-    Returns:
-        View function para Flask
-    """
+    """Crea un endpoint Flask para recibir reportes."""
     handler = ReportHandler(watchbug_instance)
     
     def flask_view():
         from flask import request, jsonify
-        
         try:
             print("\n[Watchbug API] Recibiendo reporte...")
-            
-            # Parsear datos JSON
             data_str = request.form.get('data')
-            if not data_str:
-                print("[Watchbug API] ERROR: No se recibió 'data' en el form")
-                return jsonify({'error': 'No data provided'}), 400
+            if not data_str: return jsonify({'error': 'No data provided'}), 400
             
-            try:
-                data = json.loads(data_str)
-            except json.JSONDecodeError as e:
-                print(f"[Watchbug API] ERROR parseando JSON: {e}")
-                return jsonify({'error': f'Invalid JSON: {str(e)}'}), 400
+            try: data = json.loads(data_str)
+            except json.JSONDecodeError as e: return jsonify({'error': f'Invalid JSON: {str(e)}'}), 400
             
-            # Obtener screenshot si existe
             screenshot = None
             if 'screenshot' in request.files:
-                screenshot_file = request.files['screenshot']
-                screenshot = screenshot_file.read()
-                print(f"[Watchbug API] Screenshot recibido: {len(screenshot)} bytes")
-            else:
-                print("[Watchbug API] No se recibió screenshot")
+                screenshot = request.files['screenshot'].read()
             
-            # Crear y procesar reporte
             report = BugReport(data, screenshot)
             result = handler.process_report(report)
             
-            if result['success']:
-                return jsonify(result), 200
-            else:
-                return jsonify(result), 500
+            return jsonify(result), (200 if result['success'] else 500)
                 
         except Exception as e:
-            print(f"[Watchbug API] EXCEPCIÓN en endpoint Flask: {e}")
             logger.error(f"Error en endpoint Flask: {e}", exc_info=True)
             return jsonify({'error': str(e)}), 500
-    
     return flask_view
 
 
-# ============================================
-# Django Integration
-# ============================================
-
 def create_django_view(watchbug_instance):
-    """
-    Crea una view de Django para recibir reportes.
-    
-    Uso:
-        # En urls.py
-        from watchbug import Watchbug
-        from watchbug.api import create_django_view
-        
-        watchbug = Watchbug()
-        
-        urlpatterns = [
-            path('watchbug/report/', create_django_view(watchbug)),
-        ]
-    
-    Args:
-        watchbug_instance: Instancia de Watchbug
-        
-    Returns:
-        View function para Django
-    """
+    """Crea una view de Django para recibir reportes."""
     handler = ReportHandler(watchbug_instance)
     
     def django_view(request):
@@ -381,96 +216,48 @@ def create_django_view(watchbug_instance):
         
         @csrf_exempt
         def _view(request):
-            if request.method != 'POST':
-                return JsonResponse({'error': 'Method not allowed'}, status=405)
-            
+            if request.method != 'POST': return JsonResponse({'error': 'Method not allowed'}, status=405)
             try:
-                # Parsear datos JSON
                 data_str = request.POST.get('data')
-                if not data_str:
-                    return JsonResponse({'error': 'No data provided'}, status=400)
+                if not data_str: return JsonResponse({'error': 'No data provided'}, status=400)
                 
                 data = json.loads(data_str)
-                
-                # Obtener screenshot si existe
                 screenshot = None
                 if 'screenshot' in request.FILES:
                     screenshot = request.FILES['screenshot'].read()
                 
-                # Crear y procesar reporte
                 report = BugReport(data, screenshot)
                 result = handler.process_report(report)
-                
-                if result['success']:
-                    return JsonResponse(result, status=200)
-                else:
-                    return JsonResponse(result, status=500)
+                return JsonResponse(result, status=(200 if result['success'] else 500))
                     
             except Exception as e:
                 logger.error(f"Error en view Django: {e}", exc_info=True)
                 return JsonResponse({'error': str(e)}, status=500)
-        
         return _view(request)
-    
     return django_view
 
 
-# ============================================
-# FastAPI Integration
-# ============================================
-
 def create_fastapi_endpoint(watchbug_instance):
-    """
-    Crea un endpoint FastAPI para recibir reportes.
-    
-    Uso:
-        from fastapi import FastAPI
-        from watchbug import Watchbug
-        from watchbug.api import create_fastapi_endpoint
-        
-        app = FastAPI()
-        watchbug = Watchbug()
-        
-        app.post('/watchbug/report')(create_fastapi_endpoint(watchbug))
-    
-    Args:
-        watchbug_instance: Instancia de Watchbug
-        
-    Returns:
-        Endpoint function para FastAPI
-    """
+    """Crea un endpoint FastAPI para recibir reportes."""
     handler = ReportHandler(watchbug_instance)
     
     async def fastapi_endpoint(request):
-        from fastapi import Request
         from fastapi.responses import JSONResponse
-        
         try:
-            # Parsear form data
             form = await request.form()
-            
             data_str = form.get('data')
-            if not data_str:
-                return JSONResponse({'error': 'No data provided'}, status_code=400)
+            if not data_str: return JSONResponse({'error': 'No data provided'}, status_code=400)
             
             data = json.loads(data_str)
-            
-            # Obtener screenshot si existe
             screenshot = None
             if 'screenshot' in form:
                 screenshot = await form['screenshot'].read()
             
-            # Crear y procesar reporte
             report = BugReport(data, screenshot)
             result = handler.process_report(report)
-            
-            if result['success']:
-                return JSONResponse(result, status_code=200)
-            else:
-                return JSONResponse(result, status_code=500)
+            return JSONResponse(result, status_code=(200 if result['success'] else 500))
                 
         except Exception as e:
             logger.error(f"Error en endpoint FastAPI: {e}", exc_info=True)
             return JSONResponse({'error': str(e)}, status_code=500)
-    
     return fastapi_endpoint
