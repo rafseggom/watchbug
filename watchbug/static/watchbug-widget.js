@@ -33,7 +33,8 @@
         consoleErrors: [],
         sentryEventId: null,
         logrocketSessionURL: null,
-        isReportDialogOpen: false
+        isReportDialogOpen: false,
+        capturedScreenshot: null  // Screenshot pre-capturado antes de abrir modal
     };
     
     // Exponer estado para debugging
@@ -284,16 +285,64 @@
             button.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
         });
         
-        // Click handler
         button.addEventListener('click', openReportDialog);
         
         return button;
     }
     
     /**
-     * Crea el diálogo de reporte de bugs
+     * Crea el botón del dashboard de administración
      */
-    function createReportDialog() {
+    function createDashboardButton() {
+        const button = document.createElement('button');
+        button.id = 'watchbug-dashboard-btn';
+        button.innerHTML = '📊';
+        button.title = 'Dashboard de Watchbug';
+        
+        // Estilos inline para el botón (a la izquierda del botón de reporte)
+        Object.assign(button.style, {
+            position: 'fixed',
+            bottom: '20px',
+            right: '90px', // A la izquierda del botón de reportes
+            width: '60px',
+            height: '60px',
+            borderRadius: '50%',
+            backgroundColor: '#667eea',
+            color: 'white',
+            border: 'none',
+            fontSize: '28px',
+            cursor: 'pointer',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+            zIndex: '999999',
+            transition: 'all 0.3s ease',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+        });
+        
+        // Efectos hover
+        button.addEventListener('mouseenter', () => {
+            button.style.transform = 'scale(1.1)';
+            button.style.boxShadow = '0 6px 16px rgba(0,0,0,0.4)';
+        });
+        
+        button.addEventListener('mouseleave', () => {
+            button.style.transform = 'scale(1)';
+            button.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
+        });
+        
+        // Click handler - abrir dashboard
+        button.addEventListener('click', () => {
+            window.location.href = '/watchbug/dashboard';
+        });
+        
+        return button;
+    }
+    
+    /**
+     * Crea el modal de reporte de bugs
+     */
+    function createReportModal() {
         const overlay = document.createElement('div');
         overlay.id = 'watchbug-overlay';
         
@@ -418,10 +467,23 @@
     /**
      * Abre el diálogo de reporte
      */
-    function openReportDialog() {
+    async function openReportDialog() {
         if (WatchbugState.isReportDialogOpen) return;
         
         WatchbugState.isReportDialogOpen = true;
+        
+        // IMPORTANTE: Capturar screenshot ANTES de mostrar el modal
+        console.log('[Watchbug] Capturando screenshot antes de abrir modal...');
+        try {
+            await loadHtml2Canvas();
+            WatchbugState.capturedScreenshot = await captureScreenshot();
+            console.log('[Watchbug] Screenshot capturado:', WatchbugState.capturedScreenshot ? 'Sí' : 'No');
+        } catch (error) {
+            console.warn('[Watchbug] Error capturando screenshot:', error);
+            WatchbugState.capturedScreenshot = null;
+        }
+        
+        // Ahora sí, mostrar el modal
         const overlay = document.getElementById('watchbug-overlay');
         overlay.style.display = 'flex';
         
@@ -442,6 +504,9 @@
         // Limpiar el formulario
         document.getElementById('watchbug-comment').value = '';
         document.getElementById('watchbug-status').style.display = 'none';
+        
+        // Limpiar screenshot capturado
+        WatchbugState.capturedScreenshot = null;
     }
     
     /**
@@ -474,7 +539,7 @@
             return;
         }
         
-        showStatus('Capturando información... 📸', 'info');
+        showStatus('Preparando reporte... 📋', 'info');
         
         // Deshabilitar botón de envío
         const submitBtn = document.getElementById('watchbug-submit');
@@ -484,12 +549,14 @@
         submitBtn.textContent = 'Enviando...';
         
         try {
-            // Cargar html2canvas si es necesario
-            await loadHtml2Canvas();
+            // Usar el screenshot pre-capturado (capturado ANTES de abrir el modal)
+            const screenshot = WatchbugState.capturedScreenshot;
             
-            // Capturar screenshot
-            showStatus('Capturando pantalla...', 'info');
-            const screenshot = await captureScreenshot();
+            if (screenshot) {
+                console.log('[Watchbug] Usando screenshot pre-capturado');
+            } else {
+                console.warn('[Watchbug] No hay screenshot pre-capturado disponible');
+            }
             
             // Recopilar toda la información
             const reportData = {
@@ -568,7 +635,12 @@
         
         // Crear UI
         document.body.appendChild(createFloatingButton());
-        document.body.appendChild(createReportDialog());
+        document.body.appendChild(createReportModal());
+        
+        // Crear botón de dashboard si está habilitado
+        if (WATCHBUG_CONFIG.admin === true) {
+            document.body.appendChild(createDashboardButton());
+        }
         
         console.log('[Watchbug] Widget listo ✓');
         console.log('[Watchbug] Servicios activos:', {
@@ -576,6 +648,10 @@
             logrocket: WATCHBUG_CONFIG.services.logrocket,
             supabase: WATCHBUG_CONFIG.services.supabase
         });
+        
+        if (WATCHBUG_CONFIG.admin === true) {
+            console.log('[Watchbug] Dashboard de administración habilitado en /watchbug/dashboard');
+        }
     }
     
     // Iniciar

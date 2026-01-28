@@ -180,7 +180,8 @@ class Watchbug:
                 'logrocket': self.services['logrocket']['enabled'],
                 'supabase': self.services['supabase']['enabled']
             },
-            'apiEndpoint': api_endpoint
+            'apiEndpoint': api_endpoint,
+            'admin': os.getenv('WATCHBUG_ADMIN', 'false').lower() == 'true'
         }
         
         return f"""

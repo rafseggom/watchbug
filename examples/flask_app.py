@@ -4,9 +4,11 @@ Ejemplo de aplicación Flask con Watchbug integrado
 Este ejemplo muestra cómo integrar Watchbug en una aplicación Flask.
 """
 
+import os
 from flask import Flask, render_template_string
 from watchbug import Watchbug
 from watchbug.api import create_flask_endpoint
+from watchbug.dashboard import create_flask_dashboard
 
 app = Flask(__name__)
 
@@ -20,6 +22,46 @@ app.add_url_rule(
     create_flask_endpoint(watchbug),
     methods=['POST']
 )
+
+# Registrar dashboard si está habilitado
+admin_enabled = os.getenv('WATCHBUG_ADMIN', 'false').lower() == 'true'
+if admin_enabled:
+    dashboard_view, api_reports, api_report_details, api_service_links, api_stats = create_flask_dashboard(watchbug)
+    
+    app.add_url_rule(
+        '/watchbug/dashboard',
+        'watchbug_dashboard',
+        dashboard_view,
+        methods=['GET']
+    )
+    
+    app.add_url_rule(
+        '/watchbug/dashboard/api/reports',
+        'watchbug_api_reports',
+        api_reports,
+        methods=['GET']
+    )
+    
+    app.add_url_rule(
+        '/watchbug/dashboard/api/reports/<report_id>',
+        'watchbug_api_report_details',
+        api_report_details,
+        methods=['GET']
+    )
+    
+    app.add_url_rule(
+        '/watchbug/dashboard/api/services',
+        'watchbug_api_services',
+        api_service_links,
+        methods=['GET']
+    )
+    
+    app.add_url_rule(
+        '/watchbug/dashboard/api/stats',
+        'watchbug_api_stats',
+        api_stats,
+        methods=['GET']
+    )
 
 # Template HTML de ejemplo
 HTML_TEMPLATE = """
@@ -209,6 +251,18 @@ def index():
         logrocket=watchbug.services['logrocket']['enabled'],
         supabase=watchbug.services['supabase']['enabled']
     )
+
+
+@app.route('/test')
+def test_widget():
+    """Página de prueba para debuggear el widget."""
+    import os
+    template_path = os.path.join(os.path.dirname(__file__), 'test_widget.html')
+    with open(template_path, 'r', encoding='utf-8') as f:
+        template = f.read()
+    
+    watchbug_script = watchbug.get_script_tag(api_endpoint='/watchbug/report')
+    return render_template_string(template, watchbug_script=watchbug_script)
 
 
 if __name__ == '__main__':

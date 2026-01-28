@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Watchbug Widget</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 50px;
+            background: #f5f5f5;
+        }
+        .debug {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        pre {
+            background: #f0f0f0;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="debug">
+        <h1>🐛 Test Watchbug Widget</h1>
+        <p>Abre la consola del navegador (F12) para ver los mensajes de Watchbug.</p>
+        
+        <h2>Configuración:</h2>
+        <pre id="config">Cargando...</pre>
+        
+        <h2>Estado del DOM:</h2>
+        <pre id="dom-state">Cargando...</pre>
+        
+        <h2>Botones encontrados:</h2>
+        <pre id="buttons">Cargando...</pre>
+    </div>
+    
+    <script>
+        // Mostrar config de Watchbug
+        setTimeout(() => {
+            const config = window.__WATCHBUG_CONFIG__;
+            document.getElementById('config').textContent = JSON.stringify(config, null, 2);
+            
+            // Estado del DOM
+            document.getElementById('dom-state').textContent = 
+                `document.readyState: ${document.readyState}\n` +
+                `document.body: ${document.body ? 'existe' : 'NO existe'}\n` +
+                `DOMContentLoaded: ya ejecutado`;
+            
+            // Buscar botones de Watchbug
+            const bugButton = document.getElementById('watchbug-floating-btn');
+            const dashboardButton = document.getElementById('watchbug-dashboard-btn');
+            const modal = document.getElementById('watchbug-overlay');
+            
+            let buttonsText = '';
+            buttonsText += `Botón de reportes (🐛): ${bugButton ? '✓ ENCONTRADO' : '✗ NO ENCONTRADO'}\n`;
+            buttonsText += `Botón de dashboard (📊): ${dashboardButton ? '✓ ENCONTRADO' : '✗ NO ENCONTRADO'}\n`;
+            buttonsText += `Modal de reporte: ${modal ? '✓ ENCONTRADO' : '✗ NO ENCONTRADO'}\n`;
+            
+            if (bugButton) {
+                buttonsText += `\nEstilo del botón 🐛:\n`;
+                buttonsText += `  position: ${bugButton.style.position}\n`;
+                buttonsText += `  bottom: ${bugButton.style.bottom}\n`;
+                buttonsText += `  right: ${bugButton.style.right}\n`;
+                buttonsText += `  display: ${bugButton.style.display}\n`;
+                buttonsText += `  zIndex: ${bugButton.style.zIndex}\n`;
+            }
+            
+            if (dashboardButton) {
+                buttonsText += `\nEstilo del botón 📊:\n`;
+                buttonsText += `  position: ${dashboardButton.style.position}\n`;
+                buttonsText += `  bottom: ${dashboardButton.style.bottom}\n`;
+                buttonsText += `  right: ${dashboardButton.style.right}\n`;
+                buttonsText += `  display: ${dashboardButton.style.display}\n`;
+                buttonsText += `  zIndex: ${dashboardButton.style.zIndex}\n`;
+            }
+            
+            document.getElementById('buttons').textContent = buttonsText;
+        }, 1000); // Esperar 1 segundo para que el widget se inicialice
+    </script>
+    
+    <!-- WATCHBUG SE INYECTA AQUÍ -->
+    {{ watchbug_script|safe }}
+</body>
+</html>
