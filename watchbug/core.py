@@ -11,7 +11,6 @@ import json
 import logging
 from typing import Dict, Optional
 from dotenv import load_dotenv
-from supabase import create_client, Client
 
 from .checks import (
     ServiceStatus,
@@ -33,15 +32,6 @@ logger.setLevel(logging.INFO)
 class Watchbug:
     """
     Clase principal de Watchbug.
-    
-    Watchbug puede funcionar en diferentes modos:
-    - Con Supabase: Almacenamiento centralizado + integración con Sentry/LogRocket
-    - Sin Supabase: Los errores van directamente a Sentry/LogRocket (modo lightweight)
-    - Cualquier combinación de servicios es válida
-    
-    El sistema se desactiva automáticamente si:
-    - WATCHBUG_ENABLED=False
-    - Ningún servicio está configurado correctamente
     """
     
     def __init__(self):
@@ -57,7 +47,7 @@ class Watchbug:
                 'enabled': self._parse_bool_env("SENTRY_ENABLED", default=None),
                 'explicitly_disabled': self._parse_bool_env("SENTRY_ENABLED", default=None) is False,
                 'dsn': os.getenv("SENTRY_DSN"),
-                'validation': None,  # Se llenará en check_service()
+                'validation': None,
             },
             'logrocket': {
                 'enabled': self._parse_bool_env("LOGROCKET_ENABLED", default=None),
@@ -80,26 +70,7 @@ class Watchbug:
         # Validar configuración inicial
         self._initial_validation()
         
-        # --- Inicialización del cliente Supabase ---
-        self._supabase_client: Optional[Client] = None
-        if self.services['supabase']['enabled']:
-            try:
-                url = self.services['supabase']['url']
-                key = self.services['supabase']['key']
-                # Creamos el cliente oficial
-                self._supabase_client = create_client(url, key)
-                logger.info("Cliente de Supabase inicializado correctamente")
-            except Exception as e:
-                logger.error(f"Error inicializando Supabase client: {e}")
-                # Si falla la inicialización, desactivamos el servicio para evitar errores en runtime
-                self.services['supabase']['enabled'] = False
-                self._supabase_client = None
 
-    @property
-    def supabase(self) -> Optional[Client]:
-        """Acceso directo al cliente de Supabase."""
-        return self._supabase_client
-    
     def _parse_bool_env(self, var_name: str, default: Optional[bool] = None) -> Optional[bool]:
         """Parse una variable de entorno como booleano."""
         value = os.getenv(var_name)
@@ -130,15 +101,17 @@ class Watchbug:
         valid_services = [name for name, result in validation_results.items() if result.is_valid()]
         
         if not valid_services:
-            logger.warning("Watchbug no tiene servicios configurados. Se desactivará.")
+            logger.warning("Watchbug no tiene servicios configurados correctamente. Se desactivará.")
             self.master_enabled = False
         else:
             logger.info(f"Watchbug inicializado con: {', '.join(valid_services)}")
     
     def is_enabled(self) -> bool:
+        """Retorna True si Watchbug está activo."""
         return self.master_enabled
     
     def check_service(self, service_name: str, online: bool = False) -> ValidationResult:
+        """Valida la configuración de un servicio específico."""
         if service_name not in self.services:
             raise ValueError(f"Servicio desconocido: '{service_name}'")
         
@@ -163,9 +136,11 @@ class Watchbug:
         return result
     
     def check_all(self, online: bool = False) -> Dict[str, ValidationResult]:
+        """Valida la configuración de todos los servicios."""
         return {name: self.check_service(name, online=online) for name in self.services}
     
     def get_config_status(self) -> Dict:
+        """Obtiene un resumen del estado de configuración."""
         status = {'master_enabled': self.master_enabled, 'services': {}}
         for service_name, config in self.services.items():
             service_status = {
@@ -186,6 +161,7 @@ class Watchbug:
         return status
     
     def get_script_tag(self, api_endpoint: str = "/watchbug/report") -> str:
+        """Genera el tag <script> que se inyectará en el HTML del frontend."""
         if not self.is_enabled():
             return ""
         

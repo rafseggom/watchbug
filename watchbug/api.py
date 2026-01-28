@@ -9,6 +9,7 @@ import json
 import logging
 from typing import Dict, Any, Optional
 from datetime import datetime
+import httpx  # Usamos httpx directamente para evitar dependencias pesadas
 
 logger = logging.getLogger("watchbug.api")
 
@@ -67,7 +68,7 @@ class ReportHandler:
         }
         
         try:
-            # Mostrar logs en consola (Feedback inmediato para dev)
+            # Mostrar logs en consola
             print(f"\n📍 URL: {report.url}")
             print(f"💬 Comentario: {report.comment}")
             print(f"❌ Errores JS: {len(report.errors)} | 📝 Consola: {len(report.console_errors)} | 🌐 Red: {len(report.network_errors)}")
@@ -109,45 +110,63 @@ class ReportHandler:
     
     def _save_to_supabase(self, report: BugReport) -> str:
         """
-        Guarda el reporte en Supabase usando el cliente oficial (SDK).
+        Guarda el reporte en Supabase usando httpx directamente.
+        Esto evita dependencias pesadas que requieren compilación C++.
         """
         import hashlib
-        from datetime import datetime
         
-        # Obtenemos el cliente inicializado en core.py
-        client = self.watchbug.supabase
-        if not client:
-            raise Exception("Cliente de Supabase no inicializado")
+        # Recuperar credenciales del config de watchbug
+        config = self.watchbug.services['supabase']
+        url = config['url']
+        key = config['key']
         
+        if not url or not key:
+            raise Exception("Credenciales Supabase incompletas o no configuradas")
+
+        # Headers comunes para autenticación
+        headers = {
+            "apikey": key,
+            "Authorization": f"Bearer {key}"
+        }
+
         # 1. Subir Screenshot al Storage
         screenshot_url = None
         screenshot_size = None
         
         if report.screenshot:
             try:
-                # Generar nombre único: YYYYMMDD_HHMMSS_HashURL.png
+                # Generar nombre único
                 timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
                 url_hash = hashlib.md5(report.url.encode()).hexdigest()[:8]
                 filename = f"{timestamp}_{url_hash}.png"
                 bucket_name = "watchbug-screenshots"
                 
-                # Subida con el SDK oficial
-                client.storage.from_(bucket_name).upload(
-                    path=filename,
-                    file=report.screenshot,
-                    file_options={"content-type": "image/png"}
-                )
+                # API Endpoint de Storage (POST /storage/v1/object/{bucket}/{filename})
+                storage_url = f"{url}/storage/v1/object/{bucket_name}/{filename}"
+                storage_headers = {
+                    **headers,
+                    "Content-Type": "image/png"
+                }
                 
-                # Obtener URL pública
-                screenshot_url = client.storage.from_(bucket_name).get_public_url(filename)
+                with httpx.Client() as client:
+                    resp = client.post(
+                        storage_url,
+                        content=report.screenshot,
+                        headers=storage_headers,
+                        timeout=30.0
+                    )
+                    resp.raise_for_status()
+                
+                # Construir URL pública
+                screenshot_url = f"{url}/storage/v1/object/public/{bucket_name}/{filename}"
                 screenshot_size = len(report.screenshot)
                 logger.info(f"Screenshot subido: {filename}")
                 
             except Exception as e:
                 logger.error(f"Error subiendo screenshot: {e}", exc_info=True)
-                # Continuamos aunque falle la foto
-        
-        # 2. Guardar Metadata en la Tabla
+                # No bloqueamos el reporte si falla la imagen
+
+        # 2. Insertar en Base de Datos (PostgREST)
         data = {
             'comment': report.comment,
             'url': report.url,
@@ -155,7 +174,7 @@ class ReportHandler:
             'user_agent': report.user_agent,
             'viewport_width': report.viewport.get('width'),
             'viewport_height': report.viewport.get('height'),
-            'errors': report.errors,         # El SDK serializa listas/dicts a JSON automáticamente
+            'errors': report.errors,
             'console_errors': report.console_errors,
             'network_errors': report.network_errors,
             'sentry_event_id': report.sentry_event_id,
@@ -164,13 +183,28 @@ class ReportHandler:
             'screenshot_size': screenshot_size
         }
         
-        # Inserción limpia
-        response = client.table("bug_reports").insert(data).execute()
+        # Endpoint de la tabla (POST /rest/v1/{table})
+        db_url = f"{url}/rest/v1/bug_reports"
+        db_headers = {
+            **headers,
+            "Content-Type": "application/json",
+            "Prefer": "return=representation"  # Importante: para que devuelva el ID creado
+        }
         
-        if not response.data:
-            raise Exception("Supabase no retornó datos tras la inserción")
+        with httpx.Client() as client:
+            resp = client.post(
+                db_url,
+                json=data,
+                headers=db_headers,
+                timeout=30.0
+            )
+            resp.raise_for_status()
+            result = resp.json()
             
-        return response.data[0]['id']
+        if not result or len(result) == 0:
+            raise Exception("Supabase no retornó ID después del insert")
+            
+        return result[0]['id']
 
 
 # ============================================
@@ -203,6 +237,7 @@ def create_flask_endpoint(watchbug_instance):
         except Exception as e:
             logger.error(f"Error en endpoint Flask: {e}", exc_info=True)
             return jsonify({'error': str(e)}), 500
+    
     return flask_view
 
 
@@ -228,6 +263,7 @@ def create_django_view(watchbug_instance):
                 
                 report = BugReport(data, screenshot)
                 result = handler.process_report(report)
+                
                 return JsonResponse(result, status=(200 if result['success'] else 500))
                     
             except Exception as e:
