@@ -24,7 +24,7 @@ pip install watchbug
 ### Desde código fuente
 
 ```bash
-git clone https://github.com/tu-usuario/watchbug.git
+git clone https://github.com/rafseggom/watchbug.git
 cd watchbug
 pip install -e .
 ```
@@ -419,15 +419,120 @@ watchbug check supabase
 
 ---
 
+## � Testing y Pruebas
+
+### Configuración Inicial para Tests
+
+**1. Crear el bucket en Supabase:**
+```
+1. Ve a tu proyecto en Supabase
+2. Storage > Create Bucket
+3. Nombre: watchbug-screenshots
+4. Marcar como PUBLIC
+5. Guardar
+```
+
+**2. Verificar servicios:**
+```bash
+# Validar configuración offline
+watchbug check
+
+# Probar conectividad real
+watchbug check --online
+```
+
+### Demo Interactiva
+
+```bash
+# Ejecutar aplicación de ejemplo
+python examples/flask_app.py
+
+# Abre http://localhost:5000
+```
+
+**Pruebas disponibles:**
+- Botón "Generar Error" → Crea error de JavaScript
+- Botón "Múltiples Errores" → Genera 3 errores de consola
+- Botón 🐛 (flotante) → Abre formulario de reporte
+- Botón 📊 (flotante) → Abre dashboard de reportes
+
+### Flujo de Testing Completo
+
+**1. Generar un reporte:**
+```
+1. Haz clic en "Generar Error" o "Múltiples Errores"
+2. Clic en botón 🐛 flotante
+3. Escribe un comentario: "Prueba de reporte"
+4. Clic en "Enviar Reporte"
+5. Verificar mensaje "¡Reporte enviado!"
+```
+
+**2. Verificar en servicios externos:**
+```
+Sentry: https://sentry.io/issues/
+→ Buscar el error recién reportado
+→ Verificar stack trace completo
+
+LogRocket: https://app.logrocket.com/
+→ Buscar sesión reciente
+→ Reproducir video de la sesión
+
+Supabase: Dashboard > Table Editor > bug_reports
+→ Verificar nuevo registro con todos los campos
+→ Storage > watchbug-screenshots: ver screenshot
+```
+
+**3. Dashboard interno:**
+```
+1. Clic en botón 📊 flotante
+2. Ver lista de reportes
+3. Clic en cualquier fila para expandir detalles
+4. Clic en 📋 para exportar reporte (formato Markdown)
+5. Pegar en ChatGPT/Claude para análisis
+```
+
+### Tests Automatizados (WIP)
+
+```bash
+# Ejecutar todos los tests
+pytest
+
+# Tests específicos
+pytest tests/test_core.py
+pytest tests/test_api.py
+pytest tests/test_checks.py
+
+# Con coverage
+pytest --cov=watchbug
+```
+
+### Troubleshooting
+
+**El widget no aparece:**
+- Verificar `WATCHBUG_ENABLED=True` en `.env`
+- Revisar consola del navegador (F12)
+
+**Screenshots no se guardan:**
+- Crear bucket `watchbug-screenshots` en Supabase (público)
+- Verificar `SUPABASE_BUCKET_NAME` en `.env`
+
+**Errores de timeout en Supabase:**
+- Normal en primeras peticiones (cold start)
+- Refrescar página y reintentar
+
+---
+
 ## 🤝 Contribuir
 
-Las contribuciones son bienvenidas. Por favor:
+Contribuciones son bienvenidas. Este proyecto usa **Conventional Commits** para versionado automático:
 
-1. Fork el proyecto
-2. Crea una rama para tu feature (`git checkout -b feature/mi-feature`)
-3. Commit tus cambios (`git commit -m 'Agrega mi feature'`)
-4. Push a la rama (`git push origin feature/mi-feature`)
-5. Abre un Pull Request
+```bash
+# Ejemplos
+git commit -m "feat(widget): nueva funcionalidad"
+git commit -m "fix(api): corregir bug en endpoint"
+```
+
+El versionado y CHANGELOG se generan automáticamente al hacer merge a `main`.
 
 ---
 
@@ -435,62 +540,7 @@ Las contribuciones son bienvenidas. Por favor:
 
 MIT License - Ver archivo [LICENSE](LICENSE) para más detalles.
 
-### 5. Probar la Demo
-
-```bash
-# Ejecutar aplicación de ejemplo
-python examples/flask_app.py
-
-# Abre http://localhost:5000 en tu navegador
-```
-
-La demo incluye botones para generar errores de prueba y ver cómo Watchbug los captura automáticamente.
-
-## 🏗️ Estado del Proyecto
-
-### ✅ Milestone 1: Sistema de Configuración (COMPLETADO)
-
-- [x] Estructura de paquete Python instalable
-- [x] Carga de configuración desde `.env`
-- [x] Validación de formato para Sentry DSN, LogRocket ID, Supabase credentials
-- [x] CLI para diagnóstico (`watchbug check`, `watchbug status`)
-- [x] Auto-detección inteligente de servicios habilitados
-- [x] Degradación silenciosa si la configuración es inválida
-- [x] Soporte para servicios independientes (cualquier combinación funciona)
-
-### ✅ Milestone 2: Widget Frontend (COMPLETADO)
-
-- [x] Botón flotante de reporte de bugs con UI completa
-- [x] Captura de pantalla del DOM con html2canvas
-- [x] Interceptores de errores:
-  - [x] `window.onerror` (errores globales de JavaScript)
-  - [x] `unhandledrejection` (promesas rechazadas)
-  - [x] `console.error` (errores de consola)
-  - [x] `fetch` (peticiones HTTP fallidas)
-  - [x] `XMLHttpRequest` (peticiones XHR fallidas)
-- [x] Extracción de IDs externos (Sentry eventId, LogRocket sessionURL)
-- [x] Sistema de inyección de widget con `get_script_tag()`
-- [x] API endpoints para Flask, Django y FastAPI
-- [x] Formulario de reporte con comentario del usuario
-- [x] Aplicación de demostración con Flask
-
-### 🚧 Próximos Milestones
-- [ ] Cliente de Supabase en Python
-- [ ] Subida de capturas al Storage
-- [ ] Almacenamiento de metadatos en tablas
-- [ ] Tests de conectividad online (implementar TODOs en `checks.py`)
-
-**Milestone 4: Conectores de Sentry y LogRocket**
-- [ ] Extracción automática de `eventId` de Sentry
-- [ ] Extracción de `sessionURL` de LogRocket
-- [ ] Vinculación de datos entre servicios
-
-**Milestone 5: Middleware para Frameworks**
-- [ ] Adaptador para Django
-- [ ] Adaptador para Flask
-- [ ] Adaptador para FastAPI
-- [ ] Inyección automática de script en HTML
-
+---
 ## 🧪 Validación y Health Checks
 
 Watchbug incluye un robusto sistema de validación en dos niveles:
@@ -544,19 +594,39 @@ examples/
 ### Flujo de Datos
 
 ```
-Usuario → Genera Error → Interceptor → Estado del Widget
-                ↓
-         Click en Botón 🐛
-                ↓
-   Captura Screenshot + Recopila Contexto
-                ↓
-         Envía FormData al Backend
-                ↓
-    ReportHandler procesa y almacena
-                ↓
-  [Sentry] + [LogRocket] + [Supabase*]
-  
-  * Supabase = Milestone 3
+1. Error en Navegador
+   ↓
+   Interceptor captura automáticamente
+   (JavaScript, Consola, Red)
+   ↓
+   Almacenado en WatchbugState
+
+2. Usuario hace click en 🐛
+   ↓
+   Pre-captura Screenshot (sin modal)
+   ↓
+   Muestra modal de reporte
+   ↓
+   Usuario escribe comentario y envía
+
+3. Widget envía FormData al Backend
+   ├→ Errores capturados
+   ├→ Logs de consola
+   ├→ Screenshot (base64)
+   ├→ User Agent, URL, Viewport
+   └→ IDs de Sentry/LogRocket
+
+4. Backend (ReportHandler)
+   ├→ Sentry: Enriquece evento con contexto
+   ├→ LogRocket: Linkea sesión al error
+   └→ Supabase:
+       ├→ Storage: Sube screenshot
+       └→ Database: Guarda reporte completo
+
+5. Dashboard 📊
+   ├→ Lista todos los reportes (Supabase)
+   ├→ Links a Sentry/LogRocket/Screenshot
+   └→ Exportar 📋 a Markdown 
 ```
 
 **`Watchbug`**: Clase principal que orquesta todo el sistema
@@ -578,9 +648,9 @@ Usuario → Genera Error → Interceptor → Estado del Widget
 - `message`: Mensaje descriptivo (con guías educativas si falla)
 - `details`: Información adicional (project refs, previews, etc.)
 
-## 🎓 Mensajes Educativos
+## 🎓 Mensajes Explicativos
 
-Cuando un servicio no está configurado o tiene errores, Watchbug proporciona mensajes **educativos** que guían al usuario:
+Cuando un servicio no está configurado o tiene errores, Watchbug proporciona mensajes **explicativos** que guían al usuario:
 
 ```
 Sentry DSN no configurado. Para obtener tu DSN:
@@ -590,23 +660,6 @@ Sentry DSN no configurado. Para obtener tu DSN:
   4. Añade SENTRY_DSN=<tu_dsn> a tu archivo .env
 ```
 
-## 🔒 Seguridad
-
-- Las credenciales se cargan **solo desde variables de entorno**
-- Los previews de keys muestran solo los primeros 20-30 caracteres
-- El `.env` está en `.gitignore` por defecto (no se versiona)
-- Degradación silenciosa: errores de config no rompen la aplicación
-
-## 🤝 Contribuir
-
-El proyecto está en desarrollo activo. Las contribuciones son bienvenidas:
-
-1. Fork el repositorio
-2. Crea una rama para tu feature (`git checkout -b feature/amazing-feature`)
-3. Commit tus cambios (`git commit -m 'Add amazing feature'`)
-4. Push a la rama (`git push origin feature/amazing-feature`)
-5. Abre un Pull Request
-
 ## 📝 Licencia
 
 MIT License - Ver [LICENSE](LICENSE) para más detalles.
@@ -615,19 +668,6 @@ MIT License - Ver [LICENSE](LICENSE) para más detalles.
 
 **rafseggom** - [GitHub](https://github.com/rafseggom)
 
----
-
-**Estado**: 🚀 Milestone 2 completado - Widget Frontend operativo  
-**Próximo paso**: Milestone 3 - Integración con Supabase
-
-### ✨ Nuevo en Milestone 2
-
-- 🎨 **Widget JavaScript completo** con botón flotante y diálogo de reporte
-- 📸 **Captura de pantalla automática** del DOM usando html2canvas
-- 🔍 **Interceptores de errores** para JavaScript, consola, fetch y XHR
-- 🔗 **Extracción de IDs** de Sentry y LogRocket para vincular servicios
-- 🌐 **API endpoints** listos para Flask, Django y FastAPI
-- 🎭 **Demo interactiva** en `examples/flask_app.py`
 
 **Prueba ahora:**
 ```bash

@@ -19,6 +19,8 @@ Integración con Flask:
     )
 """
 
+__version__ = "0.1.0"
+
 from .core import Watchbug
 from .checks import ServiceStatus, ValidationResult
 from .api import BugReport, ReportHandler
