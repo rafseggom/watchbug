@@ -36,6 +36,9 @@
         isReportDialogOpen: false
     };
     
+    // Exponer estado para debugging
+    window.WatchbugState = WatchbugState;
+    
     // ============================================
     // Interceptores de Errores
     // ============================================
@@ -129,28 +132,33 @@
     };
     
     XMLHttpRequest.prototype.send = function() {
-        this.addEventListener('error', function() {
+        const xhr = this;
+        
+        const errorHandler = function() {
             WatchbugState.networkErrors.push({
                 type: 'xhr',
-                method: this._watchbug_method,
-                url: this._watchbug_url,
+                method: xhr._watchbug_method,
+                url: xhr._watchbug_url,
                 error: 'Network error',
                 timestamp: new Date().toISOString()
             });
-        });
+        };
         
-        this.addEventListener('load', function() {
-            if (this.status >= 400) {
+        const loadHandler = function() {
+            if (xhr.status >= 400) {
                 WatchbugState.networkErrors.push({
                     type: 'xhr',
-                    method: this._watchbug_method,
-                    url: this._watchbug_url,
-                    status: this.status,
-                    statusText: this.statusText,
+                    method: xhr._watchbug_method,
+                    url: xhr._watchbug_url,
+                    status: xhr.status,
+                    statusText: xhr.statusText,
                     timestamp: new Date().toISOString()
                 });
             }
-        });
+        };
+        
+        this.addEventListener('error', errorHandler);
+        this.addEventListener('load', loadHandler);
         
         return originalXHRSend.apply(this, arguments);
     };
@@ -361,7 +369,7 @@
             </div>
             
             <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                <button id="watchbug-cancel" style="
+                <button id="watchbug-cancel" type="button" style="
                     padding: 10px 20px;
                     border: 1px solid #ddd;
                     background: white;
@@ -470,7 +478,9 @@
         
         // Deshabilitar botón de envío
         const submitBtn = document.getElementById('watchbug-submit');
+        const cancelBtn = document.getElementById('watchbug-cancel');
         submitBtn.disabled = true;
+        cancelBtn.disabled = true;
         submitBtn.textContent = 'Enviando...';
         
         try {
@@ -498,6 +508,8 @@
                 logrocketSessionURL: getLogrocketSessionURL()
             };
             
+            console.log('[Watchbug] Enviando reporte:', reportData);
+            
             // Crear FormData para enviar archivo + JSON
             const formData = new FormData();
             formData.append('data', JSON.stringify(reportData));
@@ -513,7 +525,11 @@
                 body: formData
             });
             
+            console.log('[Watchbug] Respuesta del servidor:', response.status);
+            
             if (response.ok) {
+                const result = await response.json();
+                console.log('[Watchbug] Resultado:', result);
                 showStatus('✅ Reporte enviado correctamente. ¡Gracias!', 'success');
                 
                 // Cerrar después de 2 segundos
@@ -521,14 +537,18 @@
                     closeReportDialog();
                 }, 2000);
             } else {
-                throw new Error(`HTTP ${response.status}`);
+                const errorText = await response.text();
+                console.error('[Watchbug] Error del servidor:', errorText);
+                throw new Error(`HTTP ${response.status}: ${errorText}`);
             }
             
         } catch (error) {
             console.error('[Watchbug] Error enviando reporte:', error);
-            showStatus('❌ Error enviando el reporte. Intenta de nuevo.', 'error');
+            showStatus('❌ Error: ' + error.message, 'error');
             
+            // Re-habilitar botones
             submitBtn.disabled = false;
+            cancelBtn.disabled = false;
             submitBtn.textContent = 'Enviar Reporte';
         }
     }

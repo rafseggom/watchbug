@@ -7,7 +7,9 @@ setup(
     install_requires=[
         "sentry-sdk",
         "python-dotenv",
-        "supabase>=2.0.0",
+        "postgrest>=2.0.0",  # Cliente PostgreSQL de Supabase (sin pyiceberg)
+        "httpx>=0.26.0",     # Para llamadas HTTP a Supabase
+        "pydantic>=2.0.0",   # Para validación de datos
     ],
     author="rafseggom",
     description="Herramienta de reporte de bugs centralizada para usuarios pilotos",

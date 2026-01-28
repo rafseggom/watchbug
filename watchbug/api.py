@@ -84,7 +84,9 @@ class ReportHandler:
         Returns:
             Diccionario con el resultado del procesamiento
         """
-        logger.info(f"Procesando reporte: {report}")
+        print("\n" + "="*60)
+        print("🐛 NUEVO REPORTE DE BUG RECIBIDO")
+        print("="*60)
         
         result = {
             'success': True,
@@ -94,36 +96,73 @@ class ReportHandler:
         }
         
         try:
-            # TODO (Milestone 3): Subir a Supabase si está habilitado
+            # Mostrar información del reporte
+            print(f"\n📍 URL: {report.url}")
+            print(f"⏰ Timestamp: {report.timestamp}")
+            print(f"💬 Comentario: {report.comment}")
+            print(f"\n🖥️  Navegador: {report.user_agent[:80]}...")
+            print(f"📐 Viewport: {report.viewport.get('width')}x{report.viewport.get('height')}")
+            
+            # Errores capturados
+            print(f"\n❌ Errores JavaScript: {len(report.errors)}")
+            if report.errors:
+                for i, error in enumerate(report.errors[:3], 1):  # Mostrar primeros 3
+                    print(f"   {i}. {error.get('type')}: {error.get('message')[:100]}")
+            
+            print(f"📝 Errores de Consola: {len(report.console_errors)}")
+            if report.console_errors:
+                for i, error in enumerate(report.console_errors[:3], 1):
+                    print(f"   {i}. {error.get('message')[:100]}")
+            
+            print(f"🌐 Errores de Red: {len(report.network_errors)}")
+            if report.network_errors:
+                for i, error in enumerate(report.network_errors[:3], 1):
+                    print(f"   {i}. {error.get('url')} - {error.get('status', 'Network error')}")
+            
+            print(f"\n📸 Screenshot: {'✓ Capturado' if report.screenshot else '✗ No disponible'}")
+            if report.screenshot:
+                print(f"   Tamaño: {len(report.screenshot)} bytes")
+            
+            # Servicios externos
+            print(f"\n🔗 Servicios Vinculados:")
+            
+            # Subir a Supabase si está habilitado
             if self.watchbug.services['supabase']['enabled']:
-                logger.info("Supabase habilitado - guardando en base de datos")
-                # supabase_id = self._save_to_supabase(report)
-                # result['report_id'] = supabase_id
-                # result['services_used'].append('supabase')
-                logger.warning("Integración con Supabase pendiente (Milestone 3)")
+                try:
+                    print(f"   💾 Supabase: Guardando en base de datos...")
+                    supabase_id = self._save_to_supabase(report)
+                    result['report_id'] = supabase_id
+                    result['services_used'].append('supabase')
+                    print(f"   💾 Supabase: ✓ Guardado con ID: {supabase_id}")
+                except Exception as e:
+                    print(f"   💾 Supabase: ✗ Error: {str(e)}")
+                    logger.error(f"Error guardando en Supabase: {e}", exc_info=True)
+                    result['errors'].append(f"Supabase error: {str(e)}")
+            else:
+                print(f"   💾 Supabase: Desactivado")
             
             # TODO (Milestone 4): Vincular con Sentry si hay eventId
             if report.sentry_event_id and self.watchbug.services['sentry']['enabled']:
-                logger.info(f"Sentry Event ID detectado: {report.sentry_event_id}")
+                print(f"   🔥 Sentry Event ID: {report.sentry_event_id}")
                 result['services_used'].append('sentry')
                 result['sentry_event_id'] = report.sentry_event_id
+            else:
+                print(f"   🔥 Sentry: No event ID")
             
             # TODO (Milestone 4): Vincular con LogRocket si hay sessionURL
             if report.logrocket_session_url and self.watchbug.services['logrocket']['enabled']:
-                logger.info(f"LogRocket Session URL detectado: {report.logrocket_session_url}")
+                print(f"   📹 LogRocket Session: {report.logrocket_session_url}")
                 result['services_used'].append('logrocket')
                 result['logrocket_session_url'] = report.logrocket_session_url
+            else:
+                print(f"   📹 LogRocket: No session URL")
             
-            # Por ahora, solo loggeamos el reporte
-            logger.info("Reporte recibido correctamente:")
-            logger.info(f"  URL: {report.url}")
-            logger.info(f"  Comentario: {report.comment}")
-            logger.info(f"  Errores JS: {len(report.errors)}")
-            logger.info(f"  Errores consola: {len(report.console_errors)}")
-            logger.info(f"  Errores red: {len(report.network_errors)}")
-            logger.info(f"  Screenshot: {'Sí' if report.screenshot else 'No'}")
+            print("\n" + "="*60)
+            print("✅ Reporte procesado exitosamente")
+            print("="*60 + "\n")
             
         except Exception as e:
+            print(f"\n❌ ERROR procesando reporte: {e}")
             logger.error(f"Error procesando reporte: {e}", exc_info=True)
             result['success'] = False
             result['errors'].append(str(e))
@@ -132,9 +171,7 @@ class ReportHandler:
     
     def _save_to_supabase(self, report: BugReport) -> str:
         """
-        Guarda el reporte en Supabase.
-        
-        TODO: Implementar en Milestone 3
+        Guarda el reporte en Supabase usando postgrest directamente.
         
         Args:
             report: El reporte a guardar
@@ -142,27 +179,98 @@ class ReportHandler:
         Returns:
             ID del reporte en Supabase
         """
-        # from supabase import create_client
-        # client = create_client(
-        #     self.watchbug.services['supabase']['url'],
-        #     self.watchbug.services['supabase']['key']
-        # )
-        # 
-        # # Subir screenshot al Storage si existe
-        # screenshot_url = None
-        # if report.screenshot:
-        #     filename = f"screenshots/{report.timestamp}_{hash(report.url)}.png"
-        #     client.storage.from_('watchbug-reports').upload(filename, report.screenshot)
-        #     screenshot_url = client.storage.from_('watchbug-reports').get_public_url(filename)
-        # 
-        # # Insertar en tabla de reportes
-        # data = report.to_dict()
-        # data['screenshot_url'] = screenshot_url
-        # result = client.table('bug_reports').insert(data).execute()
-        # 
-        # return result.data[0]['id']
+        import hashlib
+        from datetime import datetime
+        import httpx
+        from postgrest import SyncPostgrestClient
         
-        raise NotImplementedError("Implementar en Milestone 3")
+        supabase_url = self.watchbug.services['supabase']['url']
+        supabase_key = self.watchbug.services['supabase']['key']
+        
+        # Crear cliente PostgREST
+        api_url = f"{supabase_url}/rest/v1"
+        headers = {
+            "apikey": supabase_key,
+            "Authorization": f"Bearer {supabase_key}",
+            "Content-Type": "application/json",
+            "Prefer": "return=representation"
+        }
+        
+        # Subir screenshot al Storage si existe
+        screenshot_url = None
+        screenshot_size = None
+        
+        if report.screenshot:
+            try:
+                # Generar nombre único para el archivo
+                timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+                url_hash = hashlib.md5(report.url.encode()).hexdigest()[:8]
+                filename = f"{timestamp}_{url_hash}.png"
+                
+                # Subir al Storage usando la API REST
+                storage_url = f"{supabase_url}/storage/v1/object/watchbug-screenshots/{filename}"
+                storage_headers = {
+                    "apikey": supabase_key,
+                    "Authorization": f"Bearer {supabase_key}",
+                    "Content-Type": "image/png",
+                }
+                
+                with httpx.Client() as client:
+                    storage_response = client.post(
+                        storage_url,
+                        content=report.screenshot,
+                        headers=storage_headers,
+                        timeout=30.0
+                    )
+                    storage_response.raise_for_status()
+                
+                # URL pública del screenshot
+                screenshot_url = f"{supabase_url}/storage/v1/object/public/watchbug-screenshots/{filename}"
+                screenshot_size = len(report.screenshot)
+                
+                logger.info(f"Screenshot subido a Supabase: {filename}")
+                
+            except Exception as e:
+                logger.error(f"Error subiendo screenshot a Supabase: {e}", exc_info=True)
+                # Continuar sin screenshot si falla
+        
+        # Preparar datos para insertar en la tabla
+        data = {
+            'comment': report.comment,
+            'url': report.url,
+            'timestamp': report.timestamp,
+            'user_agent': report.user_agent,
+            'viewport_width': report.viewport.get('width'),
+            'viewport_height': report.viewport.get('height'),
+            'errors': report.errors,
+            'console_errors': report.console_errors,
+            'network_errors': report.network_errors,
+            'sentry_event_id': report.sentry_event_id,
+            'logrocket_session_url': report.logrocket_session_url,
+            'screenshot_url': screenshot_url,
+            'screenshot_size': screenshot_size
+        }
+        
+        # Insertar en tabla de bug_reports usando httpx directamente
+        table_url = f"{api_url}/bug_reports"
+        
+        with httpx.Client() as client:
+            response = client.post(
+                table_url,
+                json=data,
+                headers=headers,
+                timeout=30.0
+            )
+            response.raise_for_status()
+            result = response.json()
+        
+        if not result or len(result) == 0:
+            raise Exception("Supabase no retornó datos después del insert")
+        
+        report_id = result[0]['id']
+        logger.info(f"Reporte guardado en Supabase con ID: {report_id}")
+        
+        return report_id
 
 
 # ============================================
@@ -200,17 +308,28 @@ def create_flask_endpoint(watchbug_instance):
         from flask import request, jsonify
         
         try:
+            print("\n[Watchbug API] Recibiendo reporte...")
+            
             # Parsear datos JSON
             data_str = request.form.get('data')
             if not data_str:
+                print("[Watchbug API] ERROR: No se recibió 'data' en el form")
                 return jsonify({'error': 'No data provided'}), 400
             
-            data = json.loads(data_str)
+            try:
+                data = json.loads(data_str)
+            except json.JSONDecodeError as e:
+                print(f"[Watchbug API] ERROR parseando JSON: {e}")
+                return jsonify({'error': f'Invalid JSON: {str(e)}'}), 400
             
             # Obtener screenshot si existe
             screenshot = None
             if 'screenshot' in request.files:
-                screenshot = request.files['screenshot'].read()
+                screenshot_file = request.files['screenshot']
+                screenshot = screenshot_file.read()
+                print(f"[Watchbug API] Screenshot recibido: {len(screenshot)} bytes")
+            else:
+                print("[Watchbug API] No se recibió screenshot")
             
             # Crear y procesar reporte
             report = BugReport(data, screenshot)
@@ -222,6 +341,7 @@ def create_flask_endpoint(watchbug_instance):
                 return jsonify(result), 500
                 
         except Exception as e:
+            print(f"[Watchbug API] EXCEPCIÓN en endpoint Flask: {e}")
             logger.error(f"Error en endpoint Flask: {e}", exc_info=True)
             return jsonify({'error': str(e)}), 500
     

@@ -146,7 +146,12 @@ HTML_TEMPLATE = """
     
     <script>
         function throwError() {
-            throw new Error('Este es un error de ejemplo generado por el botón');
+            try {
+                throw new Error('Este es un error de ejemplo generado por el botón');
+            } catch (e) {
+                console.error('Error capturado:', e);
+                throw e;
+            }
         }
         
         function throwPromiseError() {
@@ -159,6 +164,9 @@ HTML_TEMPLATE = """
                     if (!response.ok) {
                         console.error('Petición fallida:', response.status);
                     }
+                })
+                .catch(error => {
+                    console.error('Error en fetch:', error);
                 });
         }
         
@@ -169,12 +177,14 @@ HTML_TEMPLATE = """
         }
         
         function clearErrors() {
-            if (window.WatchbugState) {
-                window.WatchbugState.errors = [];
-                window.WatchbugState.consoleErrors = [];
-                window.WatchbugState.networkErrors = [];
-                alert('Errores limpiados');
+            // Acceder al estado global de Watchbug
+            const script = document.querySelector('script:not([src])');
+            if (script && script.textContent.includes('WatchbugState')) {
+                console.log('[Demo] Limpiando errores del estado de Watchbug');
+                // El estado está dentro de una closure, pero podemos acceder vía consola
+                console.log('[Demo] Ejecuta en la consola: WatchbugState');
             }
+            alert('Para ver el estado de errores, abre la consola del navegador y escribe: WatchbugState');
         }
     </script>
     
