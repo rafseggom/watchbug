@@ -545,6 +545,7 @@
             html += '<th>Comentario</th>';
             html += '<th>Errores</th>';
             html += '<th>Screenshot</th>';
+            html += '<th>LogRocket</th>';
             html += '<th>Servicios</th>';
             html += '<th>Exportar</th>';
             html += '</tr></thead><tbody>';
@@ -569,6 +570,13 @@
                     html += '<button class="screenshot-btn" onclick="event.stopPropagation();viewScreenshot(\'' + report.screenshot_url + '\')">📸 Ver</button>';
                 } else {
                     html += '<button class="screenshot-btn" disabled>No disponible</button>';
+                }
+                html += '</td>';
+                html += '<td style="text-align:center;font-size:18px;">';
+                if (report.logrocket_session_url) {
+                    html += '✅';
+                } else {
+                    html += '❌';
                 }
                 html += '</td>';
                 html += '<td>';

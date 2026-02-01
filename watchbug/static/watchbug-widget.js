@@ -41,6 +41,69 @@
     window.WatchbugState = WatchbugState;
     
     // ============================================
+    // LogRocket - Carga Dinámica
+    // ============================================
+    
+    /**
+     * Carga dinámicamente el SDK de LogRocket cuando el usuario lo solicita
+     * @returns {Promise<boolean>} true si se cargó correctamente, false si hubo error
+     */
+    async function loadLogRocket() {
+        if (window.LogRocket) {
+            console.log('[Watchbug] LogRocket ya está cargado');
+            return true;
+        }
+        
+        if (!WATCHBUG_CONFIG.logrocketId) {
+            console.error('[Watchbug] No hay logrocketId configurado');
+            return false;
+        }
+        
+        return new Promise((resolve) => {
+            const script = document.createElement('script');
+            script.src = 'https://cdn.lr-ingest.com/LogRocket.min.js';
+            script.crossOrigin = 'anonymous';
+            
+            script.onload = () => {
+                try {
+                    if (window.LogRocket) {
+                        window.LogRocket.init(WATCHBUG_CONFIG.logrocketId);
+                        console.log('[Watchbug] LogRocket cargado e inicializado:', WATCHBUG_CONFIG.logrocketId);
+                        
+                        // Esperar 2 segundos para que LogRocket genere la sessionURL
+                        setTimeout(() => {
+                            try {
+                                const sessionURL = window.LogRocket.sessionURL;
+                                if (sessionURL) {
+                                    WatchbugState.logrocketSessionURL = sessionURL;
+                                    console.log('[Watchbug] LogRocket session URL capturada:', sessionURL);
+                                }
+                            } catch (e) {
+                                console.warn('[Watchbug] Error capturando LogRocket sessionURL:', e);
+                            }
+                        }, 2000);
+                        
+                        resolve(true);
+                    } else {
+                        console.error('[Watchbug] LogRocket no se cargó correctamente');
+                        resolve(false);
+                    }
+                } catch (error) {
+                    console.error('[Watchbug] Error inicializando LogRocket:', error);
+                    resolve(false);
+                }
+            };
+            
+            script.onerror = () => {
+                console.error('[Watchbug] Error cargando script de LogRocket (posiblemente bloqueado por ad-blocker)');
+                resolve(false);
+            };
+            
+            document.head.appendChild(script);
+        });
+    }
+    
+    // ============================================
     // Interceptores de Errores
     // ============================================
     
@@ -243,6 +306,98 @@
     // ============================================
     // UI del Widget - Botón Flotante
     // ============================================
+    
+    /**
+     * Crea el botón de grabación manual 📹 para LogRocket
+     */
+    function createRecordingButton() {
+        const button = document.createElement('button');
+        button.id = 'watchbug-recording-btn';
+        button.innerHTML = '📹';
+        button.title = 'Iniciar grabación de sesión';
+        
+        // Estilos del botón
+        Object.assign(button.style, {
+            position: 'fixed',
+            bottom: '90px',
+            right: '20px',
+            width: '50px',
+            height: '50px',
+            borderRadius: '50%',
+            border: 'none',
+            background: '#6c757d',
+            color: 'white',
+            fontSize: '24px',
+            cursor: 'pointer',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            zIndex: '9998',
+            transition: 'all 0.3s ease',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+        });
+        
+        let isRecording = false;
+        
+        button.addEventListener('click', async () => {
+            if (isRecording) {
+                return; // Ya está grabando
+            }
+            
+            // Deshabilitar botón mientras carga
+            button.style.cursor = 'wait';
+            button.style.opacity = '0.6';
+            
+            const success = await loadLogRocket();
+            
+            if (success) {
+                isRecording = true;
+                button.innerHTML = '🔴';
+                button.title = 'Grabando sesión...';
+                button.style.background = '#dc3545';
+                button.style.cursor = 'default';
+                button.style.opacity = '1';
+                
+                // Animación de pulso para indicar que está grabando
+                button.style.animation = 'watchbug-pulse 2s infinite';
+                
+                // Añadir estilos de animación si no existen
+                if (!document.getElementById('watchbug-recording-styles')) {
+                    const style = document.createElement('style');
+                    style.id = 'watchbug-recording-styles';
+                    style.textContent = `
+                        @keyframes watchbug-pulse {
+                            0%, 100% { transform: scale(1); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+                            50% { transform: scale(1.05); box-shadow: 0 6px 20px rgba(220,53,69,0.4); }
+                        }
+                    `;
+                    document.head.appendChild(style);
+                }
+            } else {
+                // Error al cargar
+                button.style.cursor = 'pointer';
+                button.style.opacity = '1';
+                alert('No se pudo iniciar la grabación. Verifica tu conexión o desactiva el bloqueador de anuncios.');
+            }
+        });
+        
+        // Hover effect (solo si no está grabando)
+        button.addEventListener('mouseenter', () => {
+            if (!isRecording) {
+                button.style.transform = 'scale(1.1)';
+                button.style.background = '#5a6268';
+            }
+        });
+        
+        button.addEventListener('mouseleave', () => {
+            if (!isRecording) {
+                button.style.transform = 'scale(1)';
+                button.style.background = '#6c757d';
+            }
+        });
+        
+        return button;
+    }
     
     /**
      * Crea el botón flotante de reporte de bugs
@@ -637,6 +792,12 @@
         // Crear UI
         document.body.appendChild(createFloatingButton());
         document.body.appendChild(createReportModal());
+        
+        // Crear botón de grabación si LogRocket está en modo manual
+        if (WATCHBUG_CONFIG.services.logrocket && WATCHBUG_CONFIG.logrocketManual) {
+            document.body.appendChild(createRecordingButton());
+            console.log('[Watchbug] Botón de grabación manual activado 📹');
+        }
         
         // Crear botón de dashboard si está habilitado
         if (WATCHBUG_CONFIG.admin === true) {
