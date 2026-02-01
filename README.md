@@ -137,7 +137,54 @@ Ejemplo de salida:
 
 ## 🚀 Uso
 
-### Integración con Flask
+### Integración Simple con Flask (Recomendada)
+
+La forma más rápida de integrar Watchbug:
+
+```python
+from flask import Flask
+from watchbug.flask import setup_watchbug
+
+app = Flask(__name__)
+
+# Una sola línea para configurar todo
+watchbug = setup_watchbug(app)
+
+@app.route('/')
+def index():
+    return '''
+    <html>
+        <body>
+            <h1>Mi Aplicación</h1>
+            <!-- Watchbug se inyectará aquí -->
+        </body>
+    </html>
+    '''
+
+if __name__ == '__main__':
+    app.run(debug=True)
+```
+
+En templates con Jinja2:
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mi App</title>
+</head>
+<body>
+    <h1>Mi Aplicación</h1>
+    
+    <!-- Widget se inyecta automáticamente -->
+    {{ watchbug_script|safe }}
+</body>
+</html>
+```
+
+### Integración Manual con Flask
+
+Si necesitas más control:
 
 ```python
 from flask import Flask, render_template
@@ -260,6 +307,126 @@ Con el dashboard habilitado:
 - Estadísticas en tiempo real
 - Links directos a Sentry, LogRocket y Supabase
 - Visor de screenshots
+
+---
+
+## 🎨 Integración con Frameworks Frontend
+
+### React + Vite
+
+**vite.config.js:**
+```javascript
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    proxy: {
+      '/watchbug': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+      }
+    }
+  }
+})
+```
+
+**index.html:**
+```html
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+  
+  <!-- Watchbug Widget -->
+  <script src="/watchbug/config.js"></script>
+  <script src="/watchbug/static/watchbug-widget.js"></script>
+</body>
+```
+
+### Next.js
+
+**next.config.js:**
+```javascript
+module.exports = {
+  async rewrites() {
+    return [
+      {
+        source: '/watchbug/:path*',
+        destination: 'http://localhost:5000/watchbug/:path*',
+      },
+    ]
+  },
+}
+```
+
+**pages/_document.js:**
+```jsx
+import { Html, Head, Main, NextScript } from 'next/document'
+
+export default function Document() {
+  return (
+    <Html>
+      <Head />
+      <body>
+        <Main />
+        <NextScript />
+        {/* Watchbug Widget */}
+        <script src="/watchbug/config.js"></script>
+        <script src="/watchbug/static/watchbug-widget.js"></script>
+      </body>
+    </Html>
+  )
+}
+```
+
+### Create React App
+
+**src/setupProxy.js:**
+```javascript
+const { createProxyMiddleware } = require('http-proxy-middleware');
+
+module.exports = function(app) {
+  app.use(
+    '/watchbug',
+    createProxyMiddleware({
+      target: 'http://localhost:5000',
+      changeOrigin: true,
+    })
+  );
+};
+```
+
+**public/index.html:**
+```html
+<body>
+  <div id="root"></div>
+  
+  <!-- Watchbug Widget -->
+  <script src="/watchbug/config.js"></script>
+  <script src="/watchbug/static/watchbug-widget.js"></script>
+</body>
+```
+
+### Vue.js + Vite
+
+**vite.config.js:**
+```javascript
+import { defineConfig } from 'vite'
+import vue from '@vitejs/plugin-vue'
+
+export default defineConfig({
+  plugins: [vue()],
+  server: {
+    proxy: {
+      '/watchbug': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+      }
+    }
+  }
+})
+```
 
 ---
 

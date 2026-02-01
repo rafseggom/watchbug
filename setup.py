@@ -5,7 +5,7 @@ setup(
     version="1.0.0",
     packages=find_packages(),
     package_data={
-        "watchbug": ["static/*.js"],
+        "watchbug": ["static/*.js", "static/*.html"],
     },
     install_requires=[
         "sentry-sdk",

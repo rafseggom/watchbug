@@ -34,6 +34,11 @@ class Watchbug:
     Clase principal de Watchbug.
     """
     
+    @staticmethod
+    def get_static_folder():
+        """Retorna la ruta absoluta a la carpeta static de Watchbug."""
+        return os.path.join(os.path.dirname(__file__), 'static')
+    
     def __init__(self):
         """Inicializa Watchbug cargando configuración desde variables de entorno."""
         load_dotenv()
@@ -160,6 +165,34 @@ class Watchbug:
                 }
             status['services'][service_name] = service_status
         return status
+    
+    def get_config_js(self, api_endpoint: str = "/watchbug/report") -> str:
+        """Genera el JavaScript de configuración con credenciales."""
+        if not self.is_enabled():
+            return "window.__WATCHBUG_CONFIG__ = {enabled: false};"
+        
+        logrocket_manual = self.services['logrocket'].get('manual_recording', True)
+        
+        config = {
+            'enabled': True,
+            'services': {
+                'sentry': self.services['sentry']['enabled'],
+                'logrocket': self.services['logrocket']['enabled'],
+                'supabase': self.services['supabase']['enabled']
+            },
+            'apiEndpoint': api_endpoint,
+            'admin': os.getenv('WATCHBUG_ADMIN', 'false').lower() == 'true',
+            'logrocketManual': logrocket_manual
+        }
+        
+        # Añadir credenciales si están disponibles
+        if self.services['sentry']['enabled'] and self.services['sentry'].get('dsn'):
+            config['sentryDsn'] = self.services['sentry']['dsn']
+        
+        if self.services['logrocket']['enabled'] and self.services['logrocket'].get('id'):
+            config['logrocketId'] = self.services['logrocket']['id']
+        
+        return f"window.__WATCHBUG_CONFIG__ = {json.dumps(config)};"
     
     def get_script_tag(self, api_endpoint: str = "/watchbug/report") -> str:
         """Genera el tag <script> que se inyectará en el HTML del frontend."""

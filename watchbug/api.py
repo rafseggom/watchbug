@@ -444,3 +444,65 @@ def create_fastapi_endpoint(watchbug_instance):
             logger.error(f"Error en endpoint FastAPI: {e}", exc_info=True)
             return JSONResponse({'error': str(e)}, status_code=500)
     return fastapi_endpoint
+
+
+# ============================================
+# Helper Functions for Unified Setup
+# ============================================
+
+def create_config_endpoint(watchbug_instance):
+    """Crea un endpoint Flask que sirve la configuración JavaScript."""
+    def config_view():
+        from flask import Response
+        js_config = watchbug_instance.get_config_js()
+        return Response(js_config, mimetype='application/javascript')
+    return config_view
+
+
+def register_all_endpoints(app, watchbug_instance, prefix='/watchbug'):
+    """
+    Registra todos los endpoints necesarios de Watchbug en una sola llamada.
+    
+    Args:
+        app: Instancia de Flask
+        watchbug_instance: Instancia de Watchbug
+        prefix: Prefijo para las rutas (default: '/watchbug')
+    
+    Example:
+        app = Flask(__name__)
+        watchbug = Watchbug()
+        register_all_endpoints(app, watchbug)
+    """
+    # Endpoint de reportes
+    app.add_url_rule(
+        f'{prefix}/report',
+        f'{prefix.replace("/", "_")}_report',
+        create_flask_endpoint(watchbug_instance),
+        methods=['POST']
+    )
+    
+    # Endpoint de configuración JavaScript
+    app.add_url_rule(
+        f'{prefix}/config.js',
+        f'{prefix.replace("/", "_")}_config',
+        create_config_endpoint(watchbug_instance),
+        methods=['GET']
+    )
+    
+    # Dashboard si está habilitado
+    if os.getenv('WATCHBUG_ADMIN', 'false').lower() == 'true':
+        try:
+            from watchbug.dashboard import create_flask_dashboard
+            dashboard_view, api_reports, api_report_details, api_services, api_stats = create_flask_dashboard(watchbug_instance)
+            
+            app.add_url_rule(f'{prefix}/dashboard', f'{prefix.replace("/", "_")}_dashboard', dashboard_view, methods=['GET'])
+            app.add_url_rule(f'{prefix}/dashboard/api/reports', f'{prefix.replace("/", "_")}_api_reports', api_reports, methods=['GET'])
+            app.add_url_rule(f'{prefix}/dashboard/api/reports/<report_id>', f'{prefix.replace("/", "_")}_api_report_details', api_report_details, methods=['GET'])
+            app.add_url_rule(f'{prefix}/dashboard/api/services', f'{prefix.replace("/", "_")}_api_services', api_services, methods=['GET'])
+            app.add_url_rule(f'{prefix}/dashboard/api/stats', f'{prefix.replace("/", "_")}_api_stats', api_stats, methods=['GET'])
+            
+            logger.info(f"Dashboard habilitado en {prefix}/dashboard")
+        except ImportError:
+            logger.warning("Dashboard no disponible (módulo no encontrado)")
+    
+    logger.info(f"Watchbug endpoints registrados con prefijo '{prefix}'")
