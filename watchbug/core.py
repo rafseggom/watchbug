@@ -180,12 +180,29 @@ class Watchbug:
                 'logrocket': self.services['logrocket']['enabled'],
                 'supabase': self.services['supabase']['enabled']
             },
+            'logrocketId': self.services['logrocket'].get('id', '') if self.services['logrocket']['enabled'] else '',
             'apiEndpoint': api_endpoint,
             'admin': os.getenv('WATCHBUG_ADMIN', 'false').lower() == 'true'
         }
         
-        return f"""
-<script>window.__WATCHBUG_CONFIG__ = {json.dumps(config)};</script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" integrity="sha512-D/fON2XxZ0f5TrA/qNg4/mfnHDnCPPBST0jUnr1x+bBBCNIaACWODR+g5iIQ/KRJ7+R8fR/Y+VwzhC0Lgh+4A==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-<script>{widget_js}</script>
-""".strip()
+        # Construir scripts
+        scripts = []
+        scripts.append(f'<script>window.__WATCHBUG_CONFIG__ = {json.dumps(config)};</script>')
+        
+        # Cargar LogRocket si está habilitado
+        if self.services['logrocket']['enabled'] and self.services['logrocket'].get('id'):
+            logrocket_id = self.services['logrocket']['id']
+            scripts.append(f'''
+<script src="https://cdn.lr-ingest.com/LogRocket.min.js" crossorigin="anonymous"></script>
+<script>
+  window.LogRocket && window.LogRocket.init('{logrocket_id}');
+  console.log('[Watchbug] LogRocket inicializado: {logrocket_id}');
+</script>''')
+        
+        # Cargar html2canvas para screenshots
+        scripts.append('<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" integrity="sha512-D/fON2XxZ0f5TrA/qNg4/mfnHDnCPPBST0jUnr1x+bBBCNIaACWODR+g5iIQ/KRJ7+R8fR/Y+VwzhC0Lgh+4A==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>')
+        
+        # Cargar widget
+        scripts.append(f'<script>{widget_js}</script>')
+        
+        return '\n'.join(scripts)

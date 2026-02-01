@@ -12,8 +12,36 @@ from watchbug.dashboard import create_flask_dashboard
 
 app = Flask(__name__)
 
+# Configuración de Flask para manejar archivos grandes
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB máximo
+app.config['UPLOAD_FOLDER'] = '/tmp'
+
 # Inicializar Watchbug
 watchbug = Watchbug()
+
+# Inicializar Sentry ANTES de registrar rutas (solo si está habilitado)
+# Esto evita que Flask se reinicie cuando Sentry se inicializa
+if watchbug.services['sentry']['enabled']:
+    try:
+        import sentry_sdk
+        from watchbug.api import _sentry_initialized
+        
+        if not _sentry_initialized:
+            dsn = watchbug.services['sentry']['dsn']
+            sentry_sdk.init(
+                dsn=dsn,
+                traces_sample_rate=0.0,
+                profiles_sample_rate=0.0,
+                debug=False,
+            )
+            # Marcar como inicializado
+            import watchbug.api as api_module
+            api_module._sentry_initialized = True
+            print("✓ Sentry inicializado en startup")
+    except Exception as e:
+        print(f"⚠ Error inicializando Sentry: {e}")
+        # Desactivar Sentry si falla la inicialización
+        watchbug.services['sentry']['enabled'] = False
 
 # Registrar endpoint de reportes
 app.add_url_rule(
@@ -243,13 +271,16 @@ def index():
     # Obtener el script tag de Watchbug
     watchbug_script = watchbug.get_script_tag(api_endpoint='/watchbug/report')
     
-    # Renderizar template con la configuración
+    # Obtener estado de configuración real (con credenciales válidas)
+    config_status = watchbug.get_config_status()
+    
+    # Renderizar template con la configuración (solo activos si tienen credenciales Y están enabled)
     return render_template_string(
         HTML_TEMPLATE,
         watchbug_script=watchbug_script,
-        sentry=watchbug.services['sentry']['enabled'],
-        logrocket=watchbug.services['logrocket']['enabled'],
-        supabase=watchbug.services['supabase']['enabled']
+        sentry=config_status['services']['sentry']['configured'] and config_status['services']['sentry']['enabled'],
+        logrocket=config_status['services']['logrocket']['configured'] and config_status['services']['logrocket']['enabled'],
+        supabase=config_status['services']['supabase']['configured'] and config_status['services']['supabase']['enabled']
     )
 
 
@@ -281,4 +312,17 @@ if __name__ == '__main__':
     print("Abre tu navegador en: http://localhost:5000")
     print("="*60 + "\n")
     
-    app.run(debug=True, port=5000)
+    # Configurar extra_files para evitar reinicios innecesarios
+    # Solo observar archivos de este proyecto, no de librerías
+    import sys
+    extra_files = []
+    
+    # Desactivar el reloader temporalmente si Sentry está habilitado
+    # Esto evita problemas con Sentry en modo debug
+    use_reloader = not watchbug.services['sentry']['enabled']
+    
+    if not use_reloader:
+        print("⚠ Auto-reloader desactivado porque Sentry está habilitado")
+        print("  (Evita conflictos con Flask debug mode)\n")
+    
+    app.run(debug=True, port=5000, use_reloader=use_reloader)

@@ -422,6 +422,7 @@
                     padding: 10px 20px;
                     border: 1px solid #ddd;
                     background: white;
+                    color: #333;
                     border-radius: 6px;
                     cursor: pointer;
                     font-size: 14px;

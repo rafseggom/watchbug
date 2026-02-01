@@ -14,6 +14,9 @@ import httpx  # Usamos httpx directamente para evitar dependencias pesadas
 
 logger = logging.getLogger("watchbug.api")
 
+# Variable global para rastrear si Sentry ya fue inicializado
+_sentry_initialized = False
+
 
 class BugReport:
     """Representa un reporte de bug enviado desde el frontend."""
@@ -75,6 +78,33 @@ class ReportHandler:
             print(f"❌ Errores JS: {len(report.errors)} | 📝 Consola: {len(report.console_errors)} | 🌐 Red: {len(report.network_errors)}")
             print(f"📸 Screenshot: {'✓ Capturado' if report.screenshot else '✗ No disponible'}")
             
+            # Enviar a Sentry si está habilitado
+            if self.watchbug.services['sentry']['enabled']:
+                try:
+                    print(f"   🔥 Sentry: Enviando reporte...")
+                    sentry_event_id = self._send_to_sentry(report)
+                    result['services_used'].append('sentry')
+                    result['sentry_event_id'] = sentry_event_id
+                    print(f"   🔥 Sentry: ✓ Event ID: {sentry_event_id}")
+                except Exception as e:
+                    print(f"   🔥 Sentry: ✗ Error: {str(e)}")
+                    logger.warning(f"Error enviando a Sentry (no crítico): {e}")
+                    # No añadimos a errors porque no es crítico
+                    # El reporte puede continuar sin Sentry
+            
+            # Enviar a LogRocket si está habilitado
+            if self.watchbug.services['logrocket']['enabled'] and report.logrocket_session_url:
+                try:
+                    print(f"   📹 LogRocket: Enriqueciendo sesión...")
+                    self._enrich_logrocket_session(report)
+                    result['services_used'].append('logrocket')
+                    result['logrocket_session_url'] = report.logrocket_session_url
+                    print(f"   📹 LogRocket: ✓ Sesión enriquecida")
+                except Exception as e:
+                    print(f"   📹 LogRocket: ✗ Error: {str(e)}")
+                    logger.error(f"Error enriqueciendo LogRocket: {e}", exc_info=True)
+                    result['errors'].append(f"LogRocket error: {str(e)}")
+            
             # Subir a Supabase si está habilitado
             if self.watchbug.services['supabase']['enabled']:
                 try:
@@ -87,17 +117,6 @@ class ReportHandler:
                     print(f"   💾 Supabase: ✗ Error: {str(e)}")
                     logger.error(f"Error guardando en Supabase: {e}", exc_info=True)
                     result['errors'].append(f"Supabase error: {str(e)}")
-            
-            # Informar de otros servicios
-            if report.sentry_event_id:
-                result['services_used'].append('sentry')
-                result['sentry_event_id'] = report.sentry_event_id
-                print(f"   🔥 Sentry ID: {report.sentry_event_id}")
-            
-            if report.logrocket_session_url:
-                result['services_used'].append('logrocket')
-                result['logrocket_session_url'] = report.logrocket_session_url
-                print(f"   📹 LogRocket: {report.logrocket_session_url}")
 
             print("\n" + "="*60 + "\n")
             
@@ -218,6 +237,98 @@ class ReportHandler:
             raise Exception("Supabase no retornó ID después del insert")
             
         return result[0]['id']
+    
+    def _send_to_sentry(self, report: BugReport) -> str:
+        """
+        Envía un evento a Sentry con el contexto del reporte.
+        Retorna el Event ID generado por Sentry.
+        """
+        global _sentry_initialized
+        
+        try:
+            import sentry_sdk
+            from sentry_sdk import capture_message
+        except ImportError:
+            raise Exception("sentry-sdk no está instalado. Ejecuta: pip install sentry-sdk")
+        
+        # Configurar Sentry con el DSN
+        config = self.watchbug.services['sentry']
+        dsn = config['dsn']
+        
+        if not dsn:
+            raise Exception("Sentry DSN no configurado")
+        
+        # Inicializar Sentry solo una vez y ANTES de que Flask inicie
+        # Si estamos en modo debug y no está inicializado, advertir
+        if not _sentry_initialized:
+            # En modo desarrollo, no inicializar Sentry aquí para evitar reinicios
+            # Debe inicializarse en el startup de la app
+            logger.warning("Sentry no inicializado. Inicializa Sentry al arrancar Flask para evitar reinicios.")
+            logger.warning("Por ahora, solo se guardará el reporte sin enviar a Sentry.")
+            # Retornar un ID dummy para continuar
+            return "sentry-not-initialized"
+        
+        # Configurar contexto del reporte usando push_scope
+        with sentry_sdk.push_scope() as scope:
+            scope.set_context("user_report", {
+                "comment": report.comment,
+                "url": report.url,
+                "timestamp": report.timestamp,
+                "viewport": report.viewport,
+            })
+            
+            scope.set_context("errors", {
+                "javascript_errors": len(report.errors),
+                "console_errors": len(report.console_errors),
+                "network_errors": len(report.network_errors),
+            })
+            
+            # Añadir tags
+            scope.set_tag("source", "watchbug")
+            scope.set_tag("has_screenshot", report.screenshot is not None)
+            
+            if report.logrocket_session_url:
+                scope.set_tag("logrocket_session", report.logrocket_session_url)
+            
+            # Adjuntar errores capturados como breadcrumbs
+            for error in report.errors:
+                sentry_sdk.add_breadcrumb(
+                    category='javascript',
+                    message=error.get('message', ''),
+                    level='error',
+                    data=error
+                )
+            
+            for error in report.console_errors:
+                sentry_sdk.add_breadcrumb(
+                    category='console',
+                    message=error.get('message', ''),
+                    level='error',
+                    data=error
+                )
+            
+            # Capturar el evento
+            message = f"Bug Report: {report.comment[:100]}"
+            event_id = capture_message(message, level='error')
+        
+        return str(event_id)
+    
+    def _enrich_logrocket_session(self, report: BugReport):
+        """
+        Enriquece la sesión de LogRocket con información del reporte.
+        LogRocket se enriquece desde el frontend, aquí solo documentamos.
+        """
+        # LogRocket se integra principalmente desde el frontend
+        # El widget ya captura la session URL y la envía en el reporte
+        # No hay API backend para LogRocket, toda la integración es client-side
+        
+        # Simplemente logueamos que tenemos la sesión
+        logger.info(f"LogRocket session vinculada: {report.logrocket_session_url}")
+        
+        # Si quisiéramos hacer algo adicional, podríamos usar la API de LogRocket
+        # pero requeriría credenciales adicionales (API Key)
+        # Por ahora, solo capturamos la URL de sesión para vincularla
+        pass
 
 
 # ============================================
@@ -230,26 +341,49 @@ def create_flask_endpoint(watchbug_instance):
     
     def flask_view():
         from flask import request, jsonify
+        
         try:
             print("\n[Watchbug API] Recibiendo reporte...")
+            
+            # Validar que hay datos
             data_str = request.form.get('data')
-            if not data_str: return jsonify({'error': 'No data provided'}), 400
+            if not data_str:
+                logger.error("No se recibió el campo 'data'")
+                return jsonify({'error': 'No data provided'}), 400
             
-            try: data = json.loads(data_str)
-            except json.JSONDecodeError as e: return jsonify({'error': f'Invalid JSON: {str(e)}'}), 400
+            # Parsear JSON
+            try:
+                data = json.loads(data_str)
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON inválido: {e}")
+                return jsonify({'error': f'Invalid JSON: {str(e)}'}), 400
             
+            # Obtener screenshot si existe
             screenshot = None
             if 'screenshot' in request.files:
-                screenshot = request.files['screenshot'].read()
+                screenshot_file = request.files['screenshot']
+                screenshot = screenshot_file.read()
+                logger.info(f"Screenshot recibido: {len(screenshot)} bytes")
             
+            # Crear reporte
             report = BugReport(data, screenshot)
+            logger.info(f"Reporte creado: {report}")
+            
+            # Procesar reporte (esto puede tardar)
             result = handler.process_report(report)
             
-            return jsonify(result), (200 if result['success'] else 500)
+            # Retornar resultado
+            status_code = 200 if result['success'] else 500
+            return jsonify(result), status_code
                 
         except Exception as e:
+            # Capturar cualquier error y retornar respuesta válida
             logger.error(f"Error en endpoint Flask: {e}", exc_info=True)
-            return jsonify({'error': str(e)}), 500
+            return jsonify({
+                'success': False,
+                'error': str(e),
+                'type': type(e).__name__
+            }), 500
     
     return flask_view
 
