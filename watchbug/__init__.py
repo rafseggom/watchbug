@@ -19,13 +19,13 @@ Integración con Flask:
     )
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 from .core import Watchbug
 from .checks import ServiceStatus, ValidationResult
 from .api import BugReport, ReportHandler
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __all__ = [
     "Watchbug",
     "ServiceStatus",
